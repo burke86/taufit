@@ -30,7 +30,7 @@ def simulate_drw(t_rest, tau=50, z=0.0, xmean=0, SFinf=0.3):
         
     return x
     
-def fit_drw(x, y, yerr, nburn=500, nsamp=2000, color="#ff7f0e", target_name=None):
+def fit_drw(x, y, yerr, nburn=500, nsamp=2000, color="#ff7f0e", plot=True, verbose=True):
         
     # Sort data
     ind = np.argsort(x)
@@ -56,7 +56,8 @@ def fit_drw(x, y, yerr, nburn=500, nsamp=2000, color="#ff7f0e", target_name=None
     
     gp = celerite.GP(kernel, mean=np.mean(y.value), fit_mean=False)
     gp.compute(x.value, yerr.value)
-    print("Initial log-likelihood: {0}".format(gp.log_likelihood(y.value)))
+    if verbose:
+        print("Initial log-likelihood: {0}".format(gp.log_likelihood(y.value)))
 
     # Define a cost function
     def neg_log_like(params, y, gp):
@@ -73,7 +74,8 @@ def fit_drw(x, y, yerr, nburn=500, nsamp=2000, color="#ff7f0e", target_name=None
     soln = minimize(neg_log_like, initial_params, jac=grad_neg_log_like,
                     method="L-BFGS-B", bounds=bounds, args=(y.value, gp))
     gp.set_parameter_vector(soln.x)
-    print("Final log-likelihood: {0}".format(-soln.fun))
+    if verbose:
+        print("Final log-likelihood: {0}".format(-soln.fun))
 
     # Make the maximum likelihood prediction
     t = np.linspace(np.min(x.value)-100, np.max(x.value)+100, 500)
@@ -84,19 +86,23 @@ def fit_drw(x, y, yerr, nburn=500, nsamp=2000, color="#ff7f0e", target_name=None
     def log_probability(params):
         gp.set_parameter_vector(params)
         lp = gp.log_prior()
+        # tau prior
+        lp_c = params[1] # log 1/tau
         if not np.isfinite(lp):
             return -np.inf
-        return gp.log_likelihood(y) + lp
+        return gp.log_likelihood(y) + lp + lp_c
 
     initial = np.array(soln.x)
     ndim, nwalkers = len(initial), 32
     sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability)
-
-    print("Running burn-in...")
+    
+    if verbose:
+        print("Running burn-in...")
     p0 = initial + 1e-8 * np.random.randn(nwalkers, ndim)
     p0, lp, _ = sampler.run_mcmc(p0, nburn)
-
-    print("Running production...")
+    
+    if verbose:
+        print("Running production...")
     sampler.reset()
     sampler.run_mcmc(p0, nsamp);
         
@@ -108,6 +114,7 @@ def fit_drw(x, y, yerr, nburn=500, nsamp=2000, color="#ff7f0e", target_name=None
     std = np.sqrt(var)
     # Noise level
     noise_level = 2.0*np.median(np.diff(x.value))*np.mean(yerr.value**2)
+    log_tau_drw = np.log10(1/np.exp(samples[:,1]))
     
     # Lomb-Scargle periodogram with PSD normalization
     freqLS, powerLS = LombScargle(x, y, yerr).autopower(normalization='psd')
@@ -148,76 +155,76 @@ def fit_drw(x, y, yerr, nburn=500, nsamp=2000, color="#ff7f0e", target_name=None
         psd_credint[i, 2] = np.percentile(psd_samples, 84, axis=0)
         psd_credint[i, 1] = np.median(psd_samples, axis=0)
     # Plot
-    fig, axs = plt.subplots(1,2, figsize=(15,5), gridspec_kw={'width_ratios': [1, 1.5]})
-    axs[0].set_xlim(np.min(freqLS.value), np.max(freqLS.value))
-    axs[0].loglog(freqLS, powerLS, c='grey', lw=2, alpha=0.3, label=r'Lomb$-$Scargle', drawstyle='steps-pre')
-    axs[0].fill_between(f_bin_center[1:], psd_binned[1:, 1], psd_binned[1:, 2], alpha=0.8, interpolate=True, label=r'binned Lomb$-$Scargle', color='k', step='mid')
-    axs[0].fill_between(f, psd_credint[:, 2], psd_credint[:, 0], alpha=0.3, label='posterior PSD', color=color)
-    xlim = axs[0].get_xlim()
-    axs[0].hlines(noise_level, xlim[0], xlim[1], color='grey', lw=2)
-    axs[0].annotate("Measurement Noise Level", (1.25 * xlim[0], noise_level / 1.9), fontsize=14)
-    axs[0].set_ylabel("Power ($\mathrm{ppm}^2 / day^{-1}$)",fontsize=18)
-    axs[0].set_xlabel("Frequency (days$^{-1}$)",fontsize=18)
-    axs[0].tick_params('both',labelsize=16)
-    axs[0].legend(fontsize=16, loc=1)
-    axs[0].set_ylim(noise_level / 10.0, 2*axs[0].get_ylim()[1])
+    if plot:
+        fig, axs = plt.subplots(1,2, figsize=(15,5), gridspec_kw={'width_ratios': [1, 1.5]})
+        axs[0].set_xlim(np.min(freqLS.value), np.max(freqLS.value))
+        axs[0].loglog(freqLS, powerLS, c='grey', lw=2, alpha=0.3, label=r'Lomb$-$Scargle', drawstyle='steps-pre')
+        axs[0].fill_between(f_bin_center[1:], psd_binned[1:, 1], psd_binned[1:, 2], alpha=0.8, interpolate=True, label=r'binned Lomb$-$Scargle', color='k', step='mid')
+        axs[0].fill_between(f, psd_credint[:, 2], psd_credint[:, 0], alpha=0.3, label='posterior PSD', color=color)
+        xlim = axs[0].get_xlim()
+        axs[0].hlines(noise_level, xlim[0], xlim[1], color='grey', lw=2)
+        axs[0].annotate("Measurement Noise Level", (1.25 * xlim[0], noise_level / 1.9), fontsize=14)
+        axs[0].set_ylabel("Power ($\mathrm{ppm}^2 / day^{-1}$)",fontsize=18)
+        axs[0].set_xlabel("Frequency (days$^{-1}$)",fontsize=18)
+        axs[0].tick_params('both',labelsize=16)
+        axs[0].legend(fontsize=16, loc=1)
+        axs[0].set_ylim(noise_level / 10.0, 10*axs[0].get_ylim()[1])
+
+        # Plot light curve prediction
+        axs[1].errorbar(x.value, y.value, yerr=yerr.value, c='k', fmt='.', alpha=0.75, elinewidth=1)
+        axs[1].fill_between(t, mu+std, mu-std, color=color, alpha=0.3, label='posterior prediction')
+        axs[1].set_xlabel('Time (MJD)',fontsize=18)
+        axs[1].set_ylabel(r'Magnitude $g$',fontsize=18)
+        axs[1].tick_params(labelsize=18)
+        axs[1].set_ylim(np.max(y.value) + .1, np.min(y.value) - .1)
+        axs[1].set_xlim(np.min(t), np.max(t))
+        axs[1].legend(fontsize=16, loc=1)
+        fig.tight_layout()
+
+        fig, axs = plt.subplots(1,2, figsize=(15,5), gridspec_kw={'width_ratios': [1, 1.5]})
     
-    # Plot light curve prediction
-    axs[1].errorbar(x.value, y.value, yerr=yerr.value, c='k', fmt='.', alpha=0.75, elinewidth=1)
-    axs[1].fill_between(t, mu+std, mu-std, color=color, alpha=0.3, label='posterior prediction')
-    axs[1].set_xlabel('Time (MJD)',fontsize=18)
-    axs[1].set_ylabel(r'Magnitude $g$',fontsize=18)
-    axs[1].tick_params(labelsize=18)
-    axs[1].set_ylim(np.max(y.value)+.1, np.min(y.value)-.1)
-    axs[1].set_xlim(np.min(t), np.max(t))
-    axs[1].legend(fontsize=16, loc=1)
-    fig.tight_layout()
+        axs[0].hist(log_tau_drw, color=color, alpha=0.8, fill=None, histtype='step', lw=3, density=True, bins=50, label=r'posterior distribution')
+        ylim = axs[0].get_ylim()
+        axs[0].vlines(np.log10(0.2*baseline.value), ylim[0], ylim[1], color='grey', lw=4)
+        axs[0].set_ylim(ylim)
+        axs[0].set_xlim(np.min(log_tau_drw), np.max(log_tau_drw))
+        axs[0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$',fontsize=18)
+        axs[0].set_ylabel('count',fontsize=18)
+        axs[0].tick_params(labelsize=18)
     
-    fig, axs = plt.subplots(1,2, figsize=(15,5), gridspec_kw={'width_ratios': [1, 1.5]})
+        # ACF of sq. res.
+        s = np.median(samples,axis=0)
+        gp.set_parameter_vector(s)
+        mu, var = gp.predict(y.value, x.value, return_var=False)
+        res2 = (y.value-mu)**2
+
+        maxlag = 50
+
+        # Plot ACF
+        axs[1].acorr(res2-np.mean(res2), maxlags=maxlag, lw=2)
+        # White noise
+        wnoise_upper = 1.96/np.sqrt(len(x))
+        wnoise_lower = -1.96/np.sqrt(len(x))
+        axs[1].fill_between([0, maxlag], wnoise_upper, wnoise_lower, facecolor='grey')
+        axs[1].set_ylabel(r'ACF $\chi^2$',fontsize=18)
+        axs[1].set_xlabel(r'Time Lag [days]',fontsize=18)
+        axs[1].set_xlim(0, maxlag)
+        axs[1].tick_params('both',labelsize=16)
+
+        fig.tight_layout()
+        plt.show()
     
-    log_tau_drw = np.log10(1/np.exp(samples[:,1]))
-    axs[0].hist(log_tau_drw, color='k', fill=None, histtype='step', lw=3, normed=True, bins=50, label=r'$\tau_{\rm{DRW}}$')
-    ylim = axs[0].get_ylim()
-    axs[0].vlines(np.log10(0.2*baseline.value), ylim[0], ylim[1], color='grey', lw=4)
-    axs[0].set_ylim(ylim)
-    axs[0].set_xlim(np.min(log_tau_drw),np.max(log_tau_drw))
-    axs[0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$',fontsize=18)
-    axs[0].set_ylabel('count',fontsize=18)
-    axs[0].tick_params(labelsize=18)
-    
-    # ACF of sq. res.
-    s = np.median(samples,axis=0)
-    gp.set_parameter_vector(s)
-    mu, var = gp.predict(y.value, x.value, return_var=False)
-    res2 = (y.value-mu)**2
-    
-    maxlag = 50
-        
-    # Plot ACF
-    axs[1].acorr(res2-np.mean(res2), maxlags=maxlag, lw=2)
-    # White noise
-    wnoise_upper = 1.96/np.sqrt(len(x))
-    wnoise_lower = -1.96/np.sqrt(len(x))
-    axs[1].fill_between([0, maxlag], wnoise_upper, wnoise_lower, facecolor='grey')
-    axs[1].set_ylabel(r'ACF $\chi^2$',fontsize=18)
-    axs[1].set_xlabel(r'Time Lag [days]',fontsize=18)
-    axs[1].set_xlim(0, maxlag)
-    axs[1].tick_params('both',labelsize=16)
-    
-    fig.tight_layout()
-    plt.show()
-    
-    # Make corner plot
-    # These are natural logs
-    fig = corner.corner(samples, quantiles=[0.16,0.84], show_titles=True,
-                labels=[r"$\ln\ a$", r"$\ln\ c$"], titlesize=16);
-    for ax in fig.axes:
-        ax.tick_params('both',labelsize=16)
-        ax.xaxis.label.set_size(16)
-        ax.yaxis.label.set_size(16)
-        
-    fig.tight_layout()
-    plt.show()
+        # Make corner plot
+        # These are natural logs
+        #fig = corner.corner(samples, quantiles=[0.16,0.84], show_titles=True,
+        #            labels=[r"$\ln\ a$", r"$\ln\ c$"], titlesize=16);
+        #for ax in fig.axes:
+        #    ax.tick_params('both',labelsize=16)
+        #    ax.xaxis.label.set_size(16)
+        #    ax.yaxis.label.set_size(16)
+
+        #fig.tight_layout()
+        #plt.show()
     
     # Return the GP model and sample chains
     return gp, samples
