@@ -9,7 +9,7 @@ from astropy import units as u
 from astropy.timeseries import LombScargle
 from scipy.optimize import minimize
 
-def simulate_drw(t_rest, tau=50, z=0.0, xmean=0, SFinf=0.3):
+def simulate_drw(t_rest, tau=50, z=0.0, xmean=0, SFinf=0.3, seed=None):
     # Code adapted from astroML
     #  Xmean = b * tau
     #  SFinf = sigma * sqrt(tau / 2)
@@ -17,7 +17,7 @@ def simulate_drw(t_rest, tau=50, z=0.0, xmean=0, SFinf=0.3):
     N = len(t_rest)
 
     t_obs = t_rest*(1 + z)/tau
-    np.random.seed()
+    np.random.seed(seed)
     x = np.zeros(N)
     x[0] = np.random.normal(xmean, SFinf)
     E = np.random.normal(0, 1, N)
@@ -86,11 +86,9 @@ def fit_drw(x, y, yerr, nburn=500, nsamp=2000, color="#ff7f0e", plot=True, verbo
     def log_probability(params):
         gp.set_parameter_vector(params)
         lp = gp.log_prior()
-        # tau prior
-        lp_c = params[1] # log 1/tau
         if not np.isfinite(lp):
             return -np.inf
-        return gp.log_likelihood(y) + lp + lp_c
+        return gp.log_likelihood(y) + lp
 
     initial = np.array(soln.x)
     ndim, nwalkers = len(initial), 32
@@ -183,7 +181,7 @@ def fit_drw(x, y, yerr, nburn=500, nsamp=2000, color="#ff7f0e", plot=True, verbo
 
         fig, axs = plt.subplots(1,2, figsize=(15,5), gridspec_kw={'width_ratios': [1, 1.5]})
     
-        axs[0].hist(log_tau_drw, color=color, alpha=0.8, fill=None, histtype='step', lw=3, density=True, bins=50, label=r'posterior distribution')
+        axs[0].hist(log_tau_drw, color=color, alpha=0.8, fill=None, histtype='step', lw=3, bins=50, label=r'posterior distribution')
         ylim = axs[0].get_ylim()
         axs[0].vlines(np.log10(0.2*baseline.value), ylim[0], ylim[1], color='grey', lw=4)
         axs[0].set_ylim(ylim)
