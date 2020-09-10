@@ -121,7 +121,7 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     plot: whether to plot the result
     verbose: whether to print useful messages
     This takes the general form:
-        p = J, q = p - 1
+        p = 2J, q = p - 1
     """
         
     if p==1:
@@ -156,7 +156,7 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     kernel = terms.ComplexTerm(log_a=log_a, log_b=log_a, log_c=log_c, log_d=log_c,
                                bounds=dict(log_a=(amin, amax), log_b=(amin, amax),
                                            log_c=(cmin, cmax), log_d=(cmin, cmax)))
-    for j in range(2, p+1):
+    for j in range(2, p/2+1):
         kernel += terms.ComplexTerm(log_a=log_a, log_b=log_a, log_c=log_c, log_d=log_c,
                                bounds=dict(log_a=(amin, amax), log_b=(amin, amax),
                                            log_c=(cmin, cmax), log_d=(cmin, cmax)))
