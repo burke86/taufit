@@ -6,9 +6,12 @@ This repository is intended to be a simple resource for modeling AGN light curve
 
 ![example](https://user-images.githubusercontent.com/13906989/92708436-bc7a0000-f31b-11ea-8e72-474e1c2a3bcd.png)
 
-See [demo.ipynb](https://github.com/burke86/taufit/blob/master/demo.ipynb) for usage.
+See [demo.ipynb](https://nbviewer.jupyter.org/github/burke86/taufit/blob/master/demo.ipynb) for usage.
 
 ### Setup:
+
+Clone this repository, then:
+
 ```
 pip install -r requirements.txt
 ```
