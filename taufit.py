@@ -154,9 +154,9 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     
     # Add CARMA parts
     kernel = terms.ComplexTerm(log_a=log_a, log_b=log_a, log_c=log_c, log_d=log_c,
-                               bounds=dict(log_a=(amin, amax), log_b=(amin, amax),
-                                           log_c=(cmin, cmax), log_d=(cmin, cmax)))
-    for j in range(2, p/2+1):
+                               bounds=dict(log_a=(amin, amax),
+                                           log_c=(cmin, cmax)))
+    for j in range(2, p+1):
         kernel += terms.ComplexTerm(log_a=log_a, log_b=log_a, log_c=log_c, log_d=log_c,
                                bounds=dict(log_a=(amin, amax), log_b=(amin, amax),
                                            log_c=(cmin, cmax), log_d=(cmin, cmax)))
@@ -278,6 +278,8 @@ def fit_celerite(x, y, yerr, kernel, init="minimize", nburn=500, nsamp=2000, col
         else:
             idx = (freqLS.value >= f_bin[i]) & (freqLS.value < f_bin[i+1])
         len_idx = len(freqLS.value[idx])
+        if len(idx) < 2:
+            continue
         f_bin_center[i] = np.mean(freqLS.value[idx]) # freq center
         meani = np.mean(powerLS.value[idx])
         stdi = meani/np.sqrt(len_idx)
@@ -285,18 +287,16 @@ def fit_celerite(x, y, yerr, kernel, init="minimize", nburn=500, nsamp=2000, col
         psd_binned[i, 1] = meani + stdi # hi
         psd_binned[i, 2] = meani - stdi # lo
     # The posterior PSD
+    psd_samples = np.empty((len(f), len(samples)))
+    for i, s in enumerate(samples):
+        gp.set_parameter_vector(s)
+        psd_samples[:, i] = kernel.get_psd(2*np.pi*f.value)/2*np.pi
+    # Compute credibility interval
     psd_credint = np.empty((len(f), 3))
-    # Compute the PSD and credibility interval at each frequency fi
-    # Code adapted from B. C. Kelly carma_pack
-    for i, fi in enumerate(f.value):
-        omegai = 2*np.pi*fi # Convert to angular frequencies
-        ai = np.exp(samples[:,0])
-        ci = np.exp(samples[:,1])
-        psd_samples = np.sqrt(2/np.pi)*ai/ci*(1 + (omegai/ci)**2)**-1
-        # Compute credibility interval
-        psd_credint[i, 0] = np.percentile(psd_samples, 16, axis=0)
-        psd_credint[i, 2] = np.percentile(psd_samples, 84, axis=0)
-        psd_credint[i, 1] = np.median(psd_samples, axis=0)
+    psd_credint[:, 0] = np.percentile(psd_samples, 16, axis=1)
+    psd_credint[:, 2] = np.percentile(psd_samples, 84, axis=1)
+    psd_credint[:, 1] = np.median(psd_samples, axis=1)
+    
     # Plot
     if plot:
         fig, axs = plt.subplots(2,2, figsize=(15,10), gridspec_kw={'width_ratios': [1, 1.5]})
