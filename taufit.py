@@ -52,7 +52,7 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     init: 'minimize', 'differential_evolution', or array of user-specified (e.g. previous) initial conditions
     nburn: number of burn-in samples
     nsamp: number of production samples
-    bounds: 'dafault', 'none', or user-specified dictionary following celerite convention
+    bounds: 'dafault', 'none', or array of user-specified bounds
     jitter: whether to add jitter (white noise term)
     color: color for plotting
     plot: whether to plot the result
@@ -79,15 +79,31 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
         cmin = np.log(1/(10*baseline.value))
         cmax = np.log(1/min_cadence)
         log_c = np.mean([cmin,cmax])
+        
+        smin = 0.1*amin
+        smax = amax
+        log_s = np.mean([smin,smax])
     elif bounds == 'none':
         amin = -np.inf
         amax = np.inf
         cmin = -np.inf
         cmax = np.inf
+        smin = -np.inf
+        smax = np.inf
         log_a = 0
-        log_c= 0
-    elif isinstance(bounds, dict):
-        pass
+        log_c = 0
+        log_s = 0
+    elif np.issubdtype(np.array(bounds).dtype, np.number):
+        amin = bounds[0]
+        amax = bounds[1]
+        cmin = bounds[2]
+        cmax = bounds[3]
+        log_a = np.mean([amin,amax])
+        log_c = np.mean([cmin,cmax])
+        if jitter:
+            smin = bounds[4]
+            smax = bounds[5]
+            log_s = np.mean([smin,smax])
     else:
         raise ValueError('bounds value not recognized!')
                 
@@ -96,7 +112,7 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     
     # Add jitter term
     if jitter:
-        kernel += terms.JitterTerm(log_sigma=1.0, bounds=dict(log_sigma=(0.1*amin, amax)))
+        kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
         
     gp, samples = fit_celerite(x, y, yerr, kernel, init=init, nburn=nburn, nsamp=nsamp, color=color, plot=plot, verbose=verbose)
     
@@ -115,7 +131,7 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     init: 'minimize', 'differential_evolution', or array of user-specified (e.g. previous) initial conditions
     nburn: number of burn-in samples
     nsamp: number of production samples
-    bounds: 'dafault', 'none', or user-specified dictionary following celerite convention
+    bounds: 'dafault', 'none', or array of user-specified bounds
     jitter: whether to add jitter (white noise term)
     color: color for plotting
     plot: whether to plot the result
@@ -130,32 +146,28 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     # Sort data
     ind = np.argsort(x)
     x = x[ind]; y = y[ind]; yerr = yerr[ind]
-    baseline = x[-1]-x[0]
     
     # Use uniform prior with default 'smart' bounds:
-    if bounds == 'default':
-        min_precision = np.min(yerr.value)
-        amplitude = np.max(y.value)-np.min(y.value)
-        amin = np.log(0.1*min_precision)
-        amax = np.log(10*amplitude)
-        log_a = np.mean([amin,amax])
-        
-        min_cadence = np.min(np.diff(x.value))
-        cmin = np.log(1/(10*baseline.value))
-        cmax = np.log(1/min_cadence)
-        log_c = np.mean([cmin,cmax])
-    else:
-        amin = -np.inf
-        amax = np.inf
-        cmin = -np.inf
-        cmax = np.inf
+    if bounds == 'default' or bounds=='none':
+        amin = -10
+        amax = 10
+        cmin = -10
+        cmax = 10
+        smin = -10
+        smax = 10
         log_a = 0
-        log_c= 0
+        log_c = 0
+        log_s = 0
+    elif np.issubdtype(np.array(bounds).dtype, np.number):
+        pass
+    else:
+        raise ValueError('bounds value not recognized!')
     
     # Add CARMA parts
     kernel = terms.ComplexTerm(log_a=log_a, log_b=log_a, log_c=log_c, log_d=log_c,
-                               bounds=dict(log_a=(amin, amax),
-                                           log_c=(cmin, cmax)))
+                                bounds=dict(log_a=(amin, amax), log_b=(amin, amax),
+                                           log_c=(cmin, cmax), log_d=(cmin, cmax)))
+    
     for j in range(2, p+1):
         kernel += terms.ComplexTerm(log_a=log_a, log_b=log_a, log_c=log_c, log_d=log_c,
                                bounds=dict(log_a=(amin, amax), log_b=(amin, amax),
@@ -163,7 +175,7 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     
     # Add jitter term
     if jitter:
-        kernel += terms.JitterTerm(log_sigma=1.0, bounds=dict(log_sigma=(0.1*amin, amax)))
+        kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
        
     gp, samples = fit_celerite(x, y, yerr, kernel, init=init, nburn=nburn, nsamp=nsamp, color=color, plot=plot, verbose=verbose)
         
@@ -261,7 +273,6 @@ def fit_celerite(x, y, yerr, kernel, init="minimize", nburn=500, nsamp=2000, col
     std = np.sqrt(var)
     # Noise level
     noise_level = 2.0*np.median(np.diff(x.value))*np.mean(yerr.value**2)
-    log_tau_drw = np.log10(1/np.exp(samples[:,1]))
     
     # Lomb-Scargle periodogram with PSD normalization
     freqLS, powerLS = LombScargle(x, y, yerr).autopower(normalization='psd')
@@ -328,16 +339,25 @@ def fit_celerite(x, y, yerr, kernel, init="minimize", nburn=500, nsamp=2000, col
         axs[0,1].set_ylim(np.max(y.value) + .1, np.min(y.value) - .1)
         axs[0,1].set_xlim(np.min(t), np.max(t))
         axs[0,1].legend(fontsize=16, loc=1)
+        
+        # Plot timescale posterior
+        if len(kernel.terms) < 4: # DRW
+            # log tau DRW
+            log_tau = np.log10(1/np.exp(samples[:,1]))
+            axs[1,0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$ (days)',fontsize=18)
+        else: # CARMA
+            # Plot first order timescale term
+            log_tau = np.log10(1/np.exp(samples[:,1]))
+            axs[1,0].set_xlabel(r'$\log_{10} 1/c_1$ (days)',fontsize=18)
     
         # tau_DRW posterior distribution
-        axs[1,0].hist(log_tau_drw, color=color, alpha=0.8, fill=None, histtype='step', lw=3, bins=50, label=r'posterior distribution')
+        axs[1,0].hist(log_tau[np.isfinite(log_tau)], color=color, alpha=0.8, fill=None, histtype='step', lw=3, bins=50, label=r'posterior distribution')
         ylim = axs[1,0].get_ylim()
-        axs[1,0].vlines(np.percentile(log_tau_drw, 16), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
-        axs[1,0].vlines(np.percentile(log_tau_drw, 84), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
-        axs[1,0].axvspan(np.log10(0.2*baseline.value), np.max(log_tau_drw), alpha=0.2, color='k')
+        axs[1,0].vlines(np.percentile(log_tau, 16), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
+        axs[1,0].vlines(np.percentile(log_tau, 84), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
+        axs[1,0].axvspan(np.log10(0.2*baseline.value), np.max(log_tau), alpha=0.2, color='k')
         axs[1,0].set_ylim(ylim)
-        axs[1,0].set_xlim(np.min(log_tau_drw), np.max(log_tau_drw))
-        axs[1,0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$ (days)',fontsize=18)
+        axs[1,0].set_xlim(np.min(log_tau[np.isfinite(log_tau)]), np.max(log_tau[np.isfinite(log_tau)]))
         axs[1,0].set_ylabel('Count',fontsize=18)
         axs[1,0].tick_params(labelsize=18)
     
