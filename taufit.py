@@ -42,7 +42,7 @@ def simulate_drw(t_rest, tau=50, SFinf=0.3, ymean=0, z=0.0, seed=None):
     return x
         
     
-def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, color="#ff7f0e", plot=True, verbose=True):
+def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, color="#ff7f0e", plot=True, verbose=True, supress_warn=False):
     """
     Fit DRW model using celerite
     
@@ -114,12 +114,12 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     if jitter:
         kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
         
-    gp, samples = fit_celerite(x, y, yerr, kernel, init=init, nburn=nburn, nsamp=nsamp, color=color, plot=plot, verbose=verbose)
+    gp, samples = fit_celerite(x, y, yerr, kernel, 1, init=init, nburn=nburn, nsamp=nsamp, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn)
     
     # Return the GP model and sample chains
     return gp, samples
 
-def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, color="#ff7f0e", plot=True, verbose=True):
+def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, color="#ff7f0e", plot=True, verbose=True, supress_warn=False):
     """
     Fit CARMA-equivilant model using celerite
     
@@ -177,12 +177,12 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     if jitter:
         kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
        
-    gp, samples = fit_celerite(x, y, yerr, kernel, init=init, nburn=nburn, nsamp=nsamp, color=color, plot=plot, verbose=verbose)
+    gp, samples = fit_celerite(x, y, yerr, kernel, 2, init=init, nburn=nburn, nsamp=nsamp, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn)
         
     # Return the GP model and sample chains
     return gp, samples
         
-def fit_celerite(x, y, yerr, kernel, init="minimize", nburn=500, nsamp=2000, color="#ff7f0e", plot=True, verbose=True):
+def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsamp=2000, color="#ff7f0e", plot=True, verbose=True, supress_warn=False):
     """
     Fit model to data using a given celerite kernel. Computes the PSD and generates useful plots.
     
@@ -191,6 +191,7 @@ def fit_celerite(x, y, yerr, kernel, init="minimize", nburn=500, nsamp=2000, col
     y: data [astropy unit quantity]
     yerr: error on data [astropy unit quantity]
     kernel: celerite kernel
+    tau_term: index of samples to plot timescale (should be 1 for DRW)
     init: 'minimize', 'differential_evolution', or array of user-specified (e.g. previous) initial conditions
     nburn: number of burn-in samples
     nsamp: number of production samples
@@ -198,6 +199,9 @@ def fit_celerite(x, y, yerr, kernel, init="minimize", nburn=500, nsamp=2000, col
     plot: whether to plot the result
     verbose: whether to print useful messages
     """
+    
+    if supress_warn:
+        warnings.filterwarnings("ignore")
     
     baseline = x[-1]-x[0]
     
@@ -341,13 +345,13 @@ def fit_celerite(x, y, yerr, kernel, init="minimize", nburn=500, nsamp=2000, col
         axs[0,1].legend(fontsize=16, loc=1)
         
         # Plot timescale posterior
-        if len(kernel.terms) < 4: # DRW
+        if tau_term  == 1: # DRW
             # log tau DRW
-            log_tau = np.log10(1/np.exp(samples[:,1]))
+            log_tau = np.log10(1/np.exp(samples[:,tau_term]))
             axs[1,0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$ (days)',fontsize=18)
         else: # CARMA
             # Plot first order timescale term
-            log_tau = np.log10(1/np.exp(samples[:,1]))
+            log_tau = np.log10(1/np.exp(samples[:,tau_term]))
             axs[1,0].set_xlabel(r'$\log_{10} 1/c_1$ (days)',fontsize=18)
     
         # tau_DRW posterior distribution
