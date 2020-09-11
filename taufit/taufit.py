@@ -40,8 +40,48 @@ def simulate_drw(t_rest, tau=50, SFinf=0.3, ymean=0, z=0.0, seed=None):
                 + np.sqrt(2) * SFinf * E[i] * np.sqrt(dt))
         
     return x
-        
+
+def hampel_filter(x, y, window_size, n_sigmas=3):
+    """
+    Perform outlier rejection using a Hampel filter
     
+    x: time (list or np array)
+    y: value (list or np array)
+    window_size: window size to use for Hampel filter
+    n_sigmas: number of sigmas to reject outliers past
+    
+    returns: x, y, indx lists of cleaned data and index
+        
+    Adapted from Eryk Lewinson
+    https://towardsdatascience.com/outlier-detection-with-hampel-filter-85ddf523c73d
+    """
+    
+    # Sort data
+    ind = np.argsort(x)
+    x = np.array(x)[ind]
+    y = np.array(y)[ind]
+    x0 = x[0]
+    
+    n = len(x)
+    idx = []
+    k = 1.4826 # MAD scale factor for Gaussian distribution
+    
+    # Loop over data points
+    for i in range(n):
+        # Window mask
+        mask = (x > x[i] - window_size) & (x < x[i] + window_size)
+        if len(mask) == 0:
+            idx.append(i)
+            continue
+        # Compute median and MAD in window
+        y0 = np.median(y[mask])
+        S0 = k*np.median(np.abs(y[mask] - y0))
+        # MAD rejection
+        if (np.abs(y[i] - y0) < n_sigmas*S0):
+            idx.append(i)
+    
+    return np.array(x)[idx], np.array(y)[idx], idx
+
 def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, color="#ff7f0e", plot=True, verbose=True, supress_warn=False):
     """
     Fit DRW model using celerite
@@ -57,6 +97,9 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     color: color for plotting
     plot: whether to plot the result
     verbose: whether to print useful messages
+    supress_warn: whether ro supress warnings
+    
+    returns: gp, samples (celerite GuassianProcess object and samples array)
     """
         
     # Sort data
@@ -70,8 +113,8 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     # Use uniform prior with default 'smart' bounds:
     if bounds == 'default':
         min_precision = np.min(yerr.value)
-        amplitude = np.max(y.value)-np.min(y.value)
-        amin = np.log(0.1*min_precision)
+        amplitude = np.max(y.value+yerr.value)-np.min(y.value-yerr.value)
+        amin = np.log(0.05*min_precision)
         amax = np.log(10*amplitude)
         log_a = np.mean([amin,amax])
         
@@ -136,8 +179,12 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     color: color for plotting
     plot: whether to plot the result
     verbose: whether to print useful messages
+    supress_warn: whether ro supress warnings
+    
     This takes the general form:
         p = 2J, q = p - 1
+            
+    returns: gp, samples (celerite GuassianProcess object and samples array)
     """
         
     if p==1:
@@ -198,12 +245,16 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
     color: color for plotting
     plot: whether to plot the result
     verbose: whether to print useful messages
+    supress_warn: whether ro supress warnings
+    
+    returns: gp, samples (celerite GuassianProcess object and samples array)
     """
     
     if supress_warn:
         warnings.filterwarnings("ignore")
     
     baseline = x[-1]-x[0]
+    cadence = np.median(np.diff(x))
     
     gp = celerite.GP(kernel, mean=np.mean(y.value), fit_mean=False)
     gp.compute(x.value, yerr.value)
@@ -345,14 +396,14 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
         axs[0,1].legend(fontsize=16, loc=1)
         
         # Plot timescale posterior
-        if tau_term  == 1: # DRW
+        if tau_term  == 1:
             # log tau DRW
-            log_tau = np.log10(1/np.exp(samples[:,tau_term]))
             axs[1,0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$ (days)',fontsize=18)
         else: # CARMA
             # Plot first order timescale term
-            log_tau = np.log10(1/np.exp(samples[:,tau_term]))
             axs[1,0].set_xlabel(r'$\log_{10} 1/c_1$ (days)',fontsize=18)
+        
+        log_tau = np.log10(1/np.exp(samples[:,tau_term]))
     
         # tau_DRW posterior distribution
         axs[1,0].hist(log_tau[np.isfinite(log_tau)], color=color, alpha=0.8, fill=None, histtype='step', lw=3, bins=50, label=r'posterior distribution')
@@ -360,6 +411,7 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
         axs[1,0].vlines(np.percentile(log_tau, 16), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
         axs[1,0].vlines(np.percentile(log_tau, 84), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
         axs[1,0].axvspan(np.log10(0.2*baseline.value), np.max(log_tau), alpha=0.2, color='k')
+        axs[1,0].axvspan(np.min(log_tau), np.log10(2*cadence.value), alpha=0.2, color='k')
         axs[1,0].set_ylim(ylim)
         axs[1,0].set_xlim(np.min(log_tau[np.isfinite(log_tau)]), np.max(log_tau[np.isfinite(log_tau)]))
         axs[1,0].set_ylabel('Count',fontsize=18)
