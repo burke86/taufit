@@ -97,7 +97,7 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     color: color for plotting
     plot: whether to plot the result
     verbose: whether to print useful messages
-    supress_warn: whether ro supress warnings
+    supress_warn: whether to supress warnings
     
     returns: gp, samples (celerite GuassianProcess object and samples array)
     """
@@ -179,7 +179,7 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     color: color for plotting
     plot: whether to plot the result
     verbose: whether to print useful messages
-    supress_warn: whether ro supress warnings
+    supress_warn: whether to supress warnings
     
     This takes the general form:
         p = 2J, q = p - 1
@@ -245,7 +245,7 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
     color: color for plotting
     plot: whether to plot the result
     verbose: whether to print useful messages
-    supress_warn: whether ro supress warnings
+    supress_warn: whether to supress warnings
     
     returns: gp, samples (celerite GuassianProcess object and samples array)
     """
@@ -295,7 +295,8 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
     gp.set_parameter_vector(initial)
 
     # Make the maximum likelihood prediction
-    t = np.linspace(np.min(x.value)-100, np.max(x.value)+100, 500)
+    pad = 0.05*baseline.value # 5% padding for plot
+    t = np.linspace(np.min(x.value) - pad, np.max(x.value) + pad, 500)
     mu, var = gp.predict(y.value, t, return_var=True)
     std = np.sqrt(var)
     
@@ -344,7 +345,7 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
         else:
             idx = (freqLS.value >= f_bin[i]) & (freqLS.value < f_bin[i+1])
         len_idx = len(freqLS.value[idx])
-        if len(idx) < 2:
+        if len_idx < 2:
             continue
         f_bin_center[i] = np.mean(freqLS.value[idx]) # freq center
         meani = np.mean(powerLS.value[idx])
@@ -375,16 +376,17 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
         axs[0,0].hlines(noise_level, xlim[0], xlim[1], color='grey', lw=2)
         axs[0,0].annotate("Measurement Noise Level", (1.25 * xlim[0], noise_level / 1.9), fontsize=14)
         axs[0,0].set_ylabel("Power (mag$^2 / $day$^{-1}$)",fontsize=18)
-        #axs[0,0].set_ylabel("Power ($\mathrm{ppm}^2 / {0.unit:s}^{-1}$)".format(x[0]),fontsize=18)
+        #axs[0,0].set_ylabel("Power (${0.unit:s}^2 / {0.unit:s}^{-1}$)".format(x[0], y[0]), fontsize=18)
         #axs[0,0].set_xlabel("Frequency ({0.unit:s}$^{-1}$)".format(x[0]),fontsize=18)
-        axs[0,0].set_xlabel("Frequency (days$^{-1}$)",fontsize=18)
-        axs[0,0].tick_params('both',labelsize=16)
+        axs[0,0].set_xlabel("Frequency (days$^{-1}$)", fontsize=18)
+        axs[0,0].tick_params('both', labelsize=16)
         axs[0,0].legend(fontsize=16, loc=1)
         axs[0,0].set_ylim(noise_level / 10.0, 10*axs[0,0].get_ylim()[1])
 
         # Light curve & prediction
         axs[0,1].errorbar(x.value, y.value, yerr=yerr.value, c='k', fmt='.', alpha=0.75, elinewidth=1)
         axs[0,1].fill_between(t, mu+std, mu-std, color=color, alpha=0.3, label='posterior prediction')
+        
         if True:
             axs[0,1].set_xlabel("Time (MJD)",fontsize=18)
         else:
@@ -404,6 +406,12 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
             axs[1,0].set_xlabel(r'$\log_{10} 1/c_1$ (days)',fontsize=18)
         
         log_tau = np.log10(1/np.exp(samples[:,tau_term]))
+        tau_med = 10**np.median(log_tau)
+        tau_err_lo = tau_med - 10**np.percentile(log_tau, 16)
+        tau_err_hi = 10**np.percentile(log_tau, 84) - tau_med
+        # Is this backwards?
+        text = r"$\tau_{\rm{DRW}}={%.1f}^{+%.1f}_{-%.1f}$" % (tau_med, tau_err_lo, tau_err_hi)
+        axs[1,0].text(0.5, 0.9, text, transform=axs[1,0].transAxes, ha='center', fontsize=16)
     
         # tau_DRW posterior distribution
         axs[1,0].hist(log_tau[np.isfinite(log_tau)], color=color, alpha=0.8, fill=None, histtype='step', lw=3, bins=50, label=r'posterior distribution')
@@ -411,7 +419,7 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
         axs[1,0].vlines(np.percentile(log_tau, 16), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
         axs[1,0].vlines(np.percentile(log_tau, 84), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
         axs[1,0].axvspan(np.log10(0.2*baseline.value), np.max(log_tau), alpha=0.2, color='k')
-        axs[1,0].axvspan(np.min(log_tau), np.log10(2*cadence.value), alpha=0.2, color='k')
+        axs[1,0].axvspan(np.min(log_tau), np.log10(cadence.value), alpha=0.2, color='k')
         axs[1,0].set_ylim(ylim)
         axs[1,0].set_xlim(np.min(log_tau[np.isfinite(log_tau)]), np.max(log_tau[np.isfinite(log_tau)]))
         axs[1,0].set_ylabel('Count',fontsize=18)
