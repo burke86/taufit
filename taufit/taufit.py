@@ -9,37 +9,36 @@ from astropy import units as u
 from astropy.timeseries import LombScargle
 from scipy.optimize import minimize, differential_evolution
 
-def simulate_drw(t_rest, tau=50, SFinf=0.3, ymean=0, z=0.0, seed=None):
+def simulate_drw(x, tau=50, sigma=0.2, ymean=0, size=1, seed=None):
     """
-    Simulate DRW given input times, tau, SF, and ymean
+    Simulate DRW given input times, tau, amplitude, and ymean
     
-    t_rest: time (rest frame)
+    x: time (rest frame)
     tau: DRW timescale
-    SFinf: structure function at infinity
+    sigma: structure function amplitude
     ymean: data mean
-    z: redshift
-    seed: random number generator seed
-    
-    (Code adapted from astroML)
-        Xmean = b * tau
+    size: number of samples
+    seed: seed for numpy's random number generator (use 'None' to re-seed)
+
         SFinf = sigma * sqrt(tau / 2)
-    """
-
-    N = len(t_rest)
-
-    t_obs = t_rest*(1 + z)/tau
-    np.random.seed(seed)
-    x = np.zeros(N)
-    x[0] = np.random.normal(ymean, SFinf)
-    E = np.random.normal(0, 1, N)
-
-    for i in range(1, N):
-        dt = t_obs[i] - t_obs[i - 1]
-        x[i] = (x[i - 1]
-                - dt * (x[i - 1] - ymean)
-                + np.sqrt(2) * SFinf * E[i] * np.sqrt(dt))
         
-    return x
+    returns: y simulated light curve samples of shape [size, len(x)]
+    """
+    
+    np.random.seed(seed)
+    
+    log_a = np.log(2*sigma**2)
+    log_c = np.log(1/tau)
+    kernel = terms.RealTerm(log_a=log_a, log_c=log_c)
+    
+    # Simulate
+    gp = celerite.GP(kernel, mean=ymean)
+    gp.compute(x)
+    
+    y = gp.sample(size=1)
+    
+    return y
+    
 
 def hampel_filter(x, y, window_size, n_sigmas=3):
     """
@@ -126,6 +125,7 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
         smin = 0.1*amin
         smax = amax
         log_s = np.mean([smin,smax])
+    # No bounds
     elif bounds == 'none':
         amin = -np.inf
         amax = np.inf
@@ -136,6 +136,7 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
         log_a = 0
         log_c = 0
         log_s = 0
+    # User-defined bounds
     elif np.issubdtype(np.array(bounds).dtype, np.number):
         amin = bounds[0]
         amax = bounds[1]
@@ -174,7 +175,7 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     init: 'minimize', 'differential_evolution', or array of user-specified (e.g. previous) initial conditions
     nburn: number of burn-in samples
     nsamp: number of production samples
-    bounds: 'dafault', 'none', or array of user-specified bounds
+    bounds: 'dafault' or array of user-specified bounds
     jitter: whether to add jitter (white noise term)
     color: color for plotting
     plot: whether to plot the result
@@ -182,7 +183,7 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     supress_warn: whether to supress warnings
     
     This takes the general form:
-        p = 2J, q = p - 1
+        p = J, q = p - 1
             
     returns: gp, samples (celerite GuassianProcess object and samples array)
     """
@@ -195,30 +196,53 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     x = x[ind]; y = y[ind]; yerr = yerr[ind]
     
     # Use uniform prior with default 'smart' bounds:
-    if bounds == 'default' or bounds=='none':
+    if bounds == 'default':
         amin = -10
         amax = 10
+        bmin = -10
+        bmax = 10
         cmin = -10
         cmax = 10
+        dmin = -10
+        dmax = 10
         smin = -10
         smax = 10
         log_a = 0
+        log_b = 0
         log_c = 0
+        log_d = 0
         log_s = 0
+    # User-defined bounds (assume each term's bounds are the same for now)
     elif np.issubdtype(np.array(bounds).dtype, np.number):
-        pass
+        amin = bounds[0]
+        amax = bounds[1]
+        bmin = bounds[2]
+        bmax = bounds[3]
+        cmin = bounds[4]
+        cmax = bounds[5]
+        dmin = bounds[6]
+        dmax = bounds[7]
+        
+        log_a = np.mean([amin,amax])
+        log_b = np.mean([bmin,bmax])
+        log_c = np.mean([cmin,cmax])
+        log_d = np.mean([dmin,dmax])
+        if jitter:
+            smin = bounds[4]
+            smax = bounds[5]
+            log_s = np.mean([smin,smax])
     else:
         raise ValueError('bounds value not recognized!')
     
     # Add CARMA parts
-    kernel = terms.ComplexTerm(log_a=log_a, log_b=log_a, log_c=log_c, log_d=log_c,
-                                bounds=dict(log_a=(amin, amax), log_b=(amin, amax),
-                                           log_c=(cmin, cmax), log_d=(cmin, cmax)))
+    kernel = terms.ComplexTerm(log_a=log_a, log_b=log_b, log_c=log_c, log_d=log_d,
+                                bounds=dict(log_a=(amin, amax), log_b=(bmin, bmax),
+                                           log_c=(cmin, cmax), log_d=(dmin, dmax)))
     
     for j in range(2, p+1):
-        kernel += terms.ComplexTerm(log_a=log_a, log_b=log_a, log_c=log_c, log_d=log_c,
-                               bounds=dict(log_a=(amin, amax), log_b=(amin, amax),
-                                           log_c=(cmin, cmax), log_d=(cmin, cmax)))
+        kernel += terms.ComplexTerm(log_a=log_a, log_b=log_b, log_c=log_c, log_d=log_d,
+                               bounds=dict(log_a=(amin, amax), log_b=(bmin, bmax),
+                                           log_c=(cmin, cmax), log_d=(dmin, dmax)))
     
     # Add jitter term
     if jitter:
