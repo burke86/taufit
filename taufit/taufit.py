@@ -429,10 +429,11 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
             # Plot first order timescale term
             axs[1,0].set_xlabel(r'$\log_{10} 1/c_1$ (days)',fontsize=18)
         
-        log_tau = np.log10(1/np.exp(samples[:,tau_term]))
-        tau_med = 10**np.median(log_tau)
-        tau_err_lo = tau_med - 10**np.percentile(log_tau, 16)
-        tau_err_hi = 10**np.percentile(log_tau, 84) - tau_med
+        tau = 1/np.exp(samples[:,tau_term])
+        log_tau = np.log10(tau)
+        tau_med = np.median(tau)
+        tau_err_lo = tau_med - np.percentile(tau, 16)
+        tau_err_hi = np.percentile(tau, 84) - tau_med
         # Is this backwards?
         text = r"$\tau_{\rm{DRW}}={%.1f}^{+%.1f}_{-%.1f}$" % (tau_med, tau_err_lo, tau_err_hi)
         axs[1,0].text(0.5, 0.9, text, transform=axs[1,0].transAxes, ha='center', fontsize=16)
