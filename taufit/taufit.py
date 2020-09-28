@@ -81,7 +81,7 @@ def hampel_filter(x, y, window_size, n_sigmas=3):
     
     return np.array(x)[idx], np.array(y)[idx], idx
 
-def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, color="#ff7f0e", plot=True, verbose=True, supress_warn=False):
+def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False):
     """
     Fit DRW model using celerite
     
@@ -113,7 +113,7 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     if bounds == 'default':
         min_precision = np.min(yerr.value)
         amplitude = np.max(y.value+yerr.value)-np.min(y.value-yerr.value)
-        amin = np.log(0.05*min_precision)
+        amin = np.log(0.01*min_precision)
         amax = np.log(10*amplitude)
         log_a = np.mean([amin,amax])
         
@@ -158,12 +158,12 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     if jitter:
         kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
         
-    gp, samples = fit_celerite(x, y, yerr, kernel, 1, init=init, nburn=nburn, nsamp=nsamp, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn)
+    gp, samples = fit_celerite(x, y, yerr, kernel, 1, init=init, nburn=nburn, nsamp=nsamp, target_name=target_name, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn)
     
     # Return the GP model and sample chains
     return gp, samples
 
-def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, color="#ff7f0e", plot=True, verbose=True, supress_warn=False):
+def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False):
     """
     Fit CARMA-equivilant model using celerite
     
@@ -248,12 +248,12 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     if jitter:
         kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
        
-    gp, samples = fit_celerite(x, y, yerr, kernel, 2, init=init, nburn=nburn, nsamp=nsamp, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn)
+    gp, samples = fit_celerite(x, y, yerr, kernel, 2, init=init, nburn=nburn, nsamp=nsamp, target_name=None, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn)
         
     # Return the GP model and sample chains
     return gp, samples
         
-def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsamp=2000, color="#ff7f0e", plot=True, verbose=True, supress_warn=False):
+def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsamp=2000, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False):
     """
     Fit model to data using a given celerite kernel. Computes the PSD and generates useful plots.
     
@@ -408,14 +408,14 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
         axs[0,0].set_ylim(noise_level / 10.0, 10*axs[0,0].get_ylim()[1])
 
         # Light curve & prediction
-        axs[0,1].errorbar(x.value, y.value, yerr=yerr.value, c='k', fmt='.', alpha=0.75, elinewidth=1)
+        axs[0,1].errorbar(x.value, y.value, yerr=yerr.value, c='k', fmt='.', alpha=0.75, elinewidth=1, label=target_name)
         axs[0,1].fill_between(t, mu+std, mu-std, color=color, alpha=0.3, label='posterior prediction')
         
         if True:
-            axs[0,1].set_xlabel("Time (MJD)",fontsize=18)
+            axs[0,1].set_xlabel("Time (MJD)", fontsize=18)
         else:
-            axs[0,1].set_xlabel("Time ({0.unit:s})".format(x[0]),fontsize=18)
-        axs[0,1].set_ylabel(r'Magnitude',fontsize=18)
+            axs[0,1].set_xlabel("Time ({0.unit:s})".format(x[0]), fontsize=18)
+        axs[0,1].set_ylabel(r'Magnitude', fontsize=18)
         axs[0,1].tick_params(labelsize=18)
         axs[0,1].set_ylim(np.max(y.value) + .1, np.min(y.value) - .1)
         axs[0,1].set_xlim(np.min(t), np.max(t))
@@ -424,10 +424,10 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
         # Plot timescale posterior
         if tau_term  == 1:
             # log tau DRW
-            axs[1,0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$ (days)',fontsize=18)
+            axs[1,0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$ (days)', fontsize=18)
         else: # CARMA
             # Plot first order timescale term
-            axs[1,0].set_xlabel(r'$\log_{10} 1/c_1$ (days)',fontsize=18)
+            axs[1,0].set_xlabel(r'$\log_{10} 1/c_1$ (days)', fontsize=18)
         
         tau = 1/np.exp(samples[:,tau_term])
         log_tau = np.log10(tau)
@@ -447,7 +447,7 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
         axs[1,0].axvspan(np.min(log_tau), np.log10(cadence.value), alpha=0.2, color='k')
         axs[1,0].set_ylim(ylim)
         axs[1,0].set_xlim(np.min(log_tau[np.isfinite(log_tau)]), np.max(log_tau[np.isfinite(log_tau)]))
-        axs[1,0].set_ylabel('Count',fontsize=18)
+        axs[1,0].set_ylabel('Count', fontsize=18)
         axs[1,0].tick_params(labelsize=18)
     
         # ACF of sq. res.
@@ -463,10 +463,10 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
         wnoise_upper = 1.96/np.sqrt(len(x))
         wnoise_lower = -1.96/np.sqrt(len(x))
         axs[1,1].fill_between([0, maxlag], wnoise_upper, wnoise_lower, facecolor='lightgrey')
-        axs[1,1].set_ylabel(r'ACF $\chi^2$',fontsize=18)
-        axs[1,1].set_xlabel(r'Time Lag (days)',fontsize=18)
+        axs[1,1].set_ylabel(r'ACF $\chi^2$', fontsize=18)
+        axs[1,1].set_xlabel(r'Time Lag (days)', fontsize=18)
         axs[1,1].set_xlim(0, maxlag)
-        axs[1,1].tick_params('both',labelsize=16)
+        axs[1,1].tick_params('both', labelsize=16)
 
         fig.tight_layout()
         plt.show()
