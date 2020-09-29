@@ -9,6 +9,7 @@ from astropy import units as u
 from astropy.timeseries import LombScargle
 from scipy.optimize import minimize, differential_evolution
 
+
 def simulate_drw(x, tau=50, sigma=0.2, ymean=0, size=1, seed=None):
     """
     Simulate DRW given input times, tau, amplitude, and ymean
@@ -81,7 +82,8 @@ def hampel_filter(x, y, window_size, n_sigmas=3):
     
     return np.array(x)[idx], np.array(y)[idx], idx
 
-def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False):
+
+def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
     """
     Fit DRW model using celerite
     
@@ -93,12 +95,14 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     nsamp: number of production samples
     bounds: 'dafault', 'none', or array of user-specified bounds
     jitter: whether to add jitter (white noise term)
+    target_name: name of target to display in light curve legend
     color: color for plotting
     plot: whether to plot the result
     verbose: whether to print useful messages
     supress_warn: whether to supress warnings
+    seed: seed for random number generator
     
-    returns: gp, samples (celerite GuassianProcess object and samples array)
+    returns: gp, samples, fig (celerite GuassianProcess object, samples array, and figure [None if plot=False])
     """
         
     # Sort data
@@ -158,12 +162,13 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     if jitter:
         kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
         
-    gp, samples = fit_celerite(x, y, yerr, kernel, 1, init=init, nburn=nburn, nsamp=nsamp, target_name=target_name, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn)
+    gp, samples, fig = fit_celerite(x, y, yerr, kernel, 1, init=init, nburn=nburn, nsamp=nsamp, target_name=target_name, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn, seed=seed)
     
     # Return the GP model and sample chains
-    return gp, samples
+    return gp, samples, fig
 
-def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False):
+
+def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
     """
     Fit CARMA-equivilant model using celerite
     
@@ -177,15 +182,17 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     nsamp: number of production samples
     bounds: 'dafault' or array of user-specified bounds
     jitter: whether to add jitter (white noise term)
+    target_name: name of target to display in light curve legend
     color: color for plotting
     plot: whether to plot the result
     verbose: whether to print useful messages
     supress_warn: whether to supress warnings
+    seed: seed for random number generator
     
     This takes the general form:
         p = J, q = p - 1
             
-    returns: gp, samples (celerite GuassianProcess object and samples array)
+    returns: gp, samples, fig (celerite GuassianProcess object, samples array, and figure [None if plot=False])
     """
         
     if p==1:
@@ -248,12 +255,13 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     if jitter:
         kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
        
-    gp, samples = fit_celerite(x, y, yerr, kernel, 2, init=init, nburn=nburn, nsamp=nsamp, target_name=None, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn)
+    gp, samples, fig = fit_celerite(x, y, yerr, kernel, 2, init=init, nburn=nburn, nsamp=nsamp, target_name=None, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn, seed=seed)
         
     # Return the GP model and sample chains
-    return gp, samples
-        
-def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsamp=2000, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False):
+    return gp, samples, fig
+
+
+def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsamp=2000, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
     """
     Fit model to data using a given celerite kernel. Computes the PSD and generates useful plots.
     
@@ -266,19 +274,21 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
     init: 'minimize', 'differential_evolution', or array of user-specified (e.g. previous) initial conditions
     nburn: number of burn-in samples
     nsamp: number of production samples
+    target_name: name of target to display in light curve legend
     color: color for plotting
     plot: whether to plot the result
     verbose: whether to print useful messages
     supress_warn: whether to supress warnings
+    seed: seed for random number generator
     
-    returns: gp, samples (celerite GuassianProcess object and samples array)
+    returns: gp, samples, fig (celerite GuassianProcess object, samples array, and figure [None if plot=False])
     """
+    
+    # Set seed for reproducability
+    np.random.seed(seed)
     
     if supress_warn:
         warnings.filterwarnings("ignore")
-    
-    baseline = x[-1]-x[0]
-    cadence = np.median(np.diff(x))
     
     gp = celerite.GP(kernel, mean=np.mean(y.value), fit_mean=False)
     gp.compute(x.value, yerr.value)
@@ -317,12 +327,6 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
         raise ValueError('initial value not recognized!')
         
     gp.set_parameter_vector(initial)
-
-    # Make the maximum likelihood prediction
-    pad = 0.05*baseline.value # 5% padding for plot
-    t = np.linspace(np.min(x.value) - pad, np.max(x.value) + pad, 500)
-    mu, var = gp.predict(y.value, t, return_var=True)
-    std = np.sqrt(var)
     
     # Define the log probablity
     def log_probability(params):
@@ -347,8 +351,45 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
         
     # Get posterior and uncertianty
     samples = sampler.flatchain
+    
     s = np.median(samples, axis=0)
     gp.set_parameter_vector(s)
+    
+    if plot:
+        fig = plot_celerite(x, y, yerr, kernel, gp, samples, tau_term=tau_term, target_name=target_name, color=color)
+    else:
+        fig = None
+    
+    return gp, samples, fig
+
+
+def plot_celerite(x, y, yerr, kernel, gp, samples, tau_term=1, target_name=None, color="#ff7f0e"):
+    """
+    Plot celerite model, PSD, light curve, and auto-correlation figure
+    
+    Note: x, y, and yerr must by astropy Quantities with units!
+    x: time [astropy unit quantity]
+    y: data [astropy unit quantity]
+    yerr: error on data [astropy unit quantity]
+    kernel: celerite kernel
+    gp: celerite GuassianProccess object
+    samples: celerite samples array
+    tau_term: index of samples to plot timescale (should be 1 for DRW)
+    target_name: name of target to display in light curve legend
+    color: color for plotting
+    
+    returns: fig (matplotlib Figure object)
+    """
+    
+    baseline = x[-1]-x[0]
+    cadence = np.median(np.diff(x))
+        
+    s = np.median(samples, axis=0)
+    gp.set_parameter_vector(s)
+    
+    pad = 0.05*baseline.value # 5% padding for plot
+    t = np.linspace(np.min(x.value) - pad, np.max(x.value) + pad, 500)
+    
     mu, var = gp.predict(y.value, t, return_var=True)
     std = np.sqrt(var)
     # Noise level
@@ -389,87 +430,85 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
     psd_credint[:, 1] = np.median(psd_samples, axis=1)
     
     # Plot
-    if plot:
-        fig, axs = plt.subplots(2,2, figsize=(15,10), gridspec_kw={'width_ratios': [1, 1.5]})
-        # PSD
-        axs[0,0].set_xlim(np.min(freqLS.value), np.max(freqLS.value))
-        axs[0,0].loglog(freqLS, powerLS, c='grey', lw=2, alpha=0.3, label=r'Lomb$-$Scargle', drawstyle='steps-pre')
-        axs[0,0].fill_between(f_bin_center[1:], psd_binned[1:, 1], psd_binned[1:, 2], alpha=0.8, interpolate=True, label=r'binned Lomb$-$Scargle', color='k', step='mid')
-        axs[0,0].fill_between(f, psd_credint[:, 2], psd_credint[:, 0], alpha=0.3, label='posterior PSD', color=color)
-        xlim = axs[0,0].get_xlim()
-        axs[0,0].hlines(noise_level, xlim[0], xlim[1], color='grey', lw=2)
-        axs[0,0].annotate("Measurement Noise Level", (1.25 * xlim[0], noise_level / 1.9), fontsize=14)
-        axs[0,0].set_ylabel("Power (mag$^2 / $day$^{-1}$)",fontsize=18)
-        #axs[0,0].set_ylabel("Power (${0.unit:s}^2 / {0.unit:s}^{-1}$)".format(x[0], y[0]), fontsize=18)
-        #axs[0,0].set_xlabel("Frequency ({0.unit:s}$^{-1}$)".format(x[0]),fontsize=18)
-        axs[0,0].set_xlabel("Frequency (days$^{-1}$)", fontsize=18)
-        axs[0,0].tick_params('both', labelsize=16)
-        axs[0,0].legend(fontsize=16, loc=1)
-        axs[0,0].set_ylim(noise_level / 10.0, 10*axs[0,0].get_ylim()[1])
+    fig, axs = plt.subplots(2,2, figsize=(15,10), gridspec_kw={'width_ratios': [1, 1.5]})
+    # PSD
+    axs[0,0].set_xlim(np.min(freqLS.value), np.max(freqLS.value))
+    axs[0,0].loglog(freqLS, powerLS, c='grey', lw=2, alpha=0.3, label=r'Lomb$-$Scargle', drawstyle='steps-pre')
+    axs[0,0].fill_between(f_bin_center[1:], psd_binned[1:, 1], psd_binned[1:, 2], alpha=0.8, interpolate=True, label=r'binned Lomb$-$Scargle', color='k', step='mid')
+    axs[0,0].fill_between(f, psd_credint[:, 2], psd_credint[:, 0], alpha=0.3, label='posterior PSD', color=color)
+    xlim = axs[0,0].get_xlim()
+    axs[0,0].hlines(noise_level, xlim[0], xlim[1], color='grey', lw=2)
+    axs[0,0].annotate("Measurement Noise Level", (1.25 * xlim[0], noise_level / 1.9), fontsize=14)
+    axs[0,0].set_ylabel("Power (mag$^2 / $day$^{-1}$)",fontsize=18)
+    #axs[0,0].set_ylabel("Power (${0.unit:s}^2 / {0.unit:s}^{-1}$)".format(x[0], y[0]), fontsize=18)
+    #axs[0,0].set_xlabel("Frequency ({0.unit:s}$^{-1}$)".format(x[0]),fontsize=18)
+    axs[0,0].set_xlabel("Frequency (days$^{-1}$)", fontsize=18)
+    axs[0,0].tick_params('both', labelsize=16)
+    axs[0,0].legend(fontsize=16, loc=1)
+    axs[0,0].set_ylim(noise_level / 10.0, 10*axs[0,0].get_ylim()[1])
 
-        # Light curve & prediction
-        axs[0,1].errorbar(x.value, y.value, yerr=yerr.value, c='k', fmt='.', alpha=0.75, elinewidth=1, label=target_name)
-        axs[0,1].fill_between(t, mu+std, mu-std, color=color, alpha=0.3, label='posterior prediction')
-        
-        if True:
-            axs[0,1].set_xlabel("Time (MJD)", fontsize=18)
-        else:
-            axs[0,1].set_xlabel("Time ({0.unit:s})".format(x[0]), fontsize=18)
-        axs[0,1].set_ylabel(r'Magnitude', fontsize=18)
-        axs[0,1].tick_params(labelsize=18)
-        axs[0,1].set_ylim(np.max(y.value) + .1, np.min(y.value) - .1)
-        axs[0,1].set_xlim(np.min(t), np.max(t))
-        axs[0,1].legend(fontsize=16, loc=1)
-        
-        # Plot timescale posterior
-        if tau_term  == 1:
-            # log tau DRW
-            axs[1,0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$ (days)', fontsize=18)
-        else: # CARMA
-            # Plot first order timescale term
-            axs[1,0].set_xlabel(r'$\log_{10} 1/c_1$ (days)', fontsize=18)
-        
-        tau = 1/np.exp(samples[:,tau_term])
-        log_tau = np.log10(tau)
-        tau_med = np.median(tau)
-        tau_err_lo = tau_med - np.percentile(tau, 16)
-        tau_err_hi = np.percentile(tau, 84) - tau_med
-        # Is this backwards?
-        text = r"$\tau_{\rm{DRW}}={%.1f}^{+%.1f}_{-%.1f}$" % (tau_med, tau_err_lo, tau_err_hi)
-        axs[1,0].text(0.5, 0.9, text, transform=axs[1,0].transAxes, ha='center', fontsize=16)
-    
-        # tau_DRW posterior distribution
-        axs[1,0].hist(log_tau[np.isfinite(log_tau)], color=color, alpha=0.8, fill=None, histtype='step', lw=3, bins=50, label=r'posterior distribution')
-        ylim = axs[1,0].get_ylim()
-        axs[1,0].vlines(np.percentile(log_tau, 16), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
-        axs[1,0].vlines(np.percentile(log_tau, 84), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
-        axs[1,0].axvspan(np.log10(0.2*baseline.value), np.max(log_tau), alpha=0.2, color='k')
-        axs[1,0].axvspan(np.min(log_tau), np.log10(cadence.value), alpha=0.2, color='k')
-        axs[1,0].set_ylim(ylim)
-        axs[1,0].set_xlim(np.min(log_tau[np.isfinite(log_tau)]), np.max(log_tau[np.isfinite(log_tau)]))
-        axs[1,0].set_ylabel('Count', fontsize=18)
-        axs[1,0].tick_params(labelsize=18)
-    
-        # ACF of sq. res.
-        s = np.median(samples,axis=0)
-        gp.set_parameter_vector(s)
-        mu, var = gp.predict(y.value, x.value, return_var=False)
-        res2 = (y.value-mu)**2
+    # Light curve & prediction
+    axs[0,1].errorbar(x.value, y.value, yerr=yerr.value, c='k', fmt='.', alpha=0.75, elinewidth=1, label=target_name)
+    axs[0,1].fill_between(t, mu+std, mu-std, color=color, alpha=0.3, label='posterior prediction')
 
-        # Plot ACF
-        lags, c, l, b = axs[1,1].acorr(res2-np.mean(res2), maxlags=None, lw=2, color='k')
-        maxlag = (len(lags)-2)/2
-        # White noise
-        wnoise_upper = 1.96/np.sqrt(len(x))
-        wnoise_lower = -1.96/np.sqrt(len(x))
-        axs[1,1].fill_between([0, maxlag], wnoise_upper, wnoise_lower, facecolor='lightgrey')
-        axs[1,1].set_ylabel(r'ACF $\chi^2$', fontsize=18)
-        axs[1,1].set_xlabel(r'Time Lag (days)', fontsize=18)
-        axs[1,1].set_xlim(0, maxlag)
-        axs[1,1].tick_params('both', labelsize=16)
+    if True:
+        axs[0,1].set_xlabel("Time (MJD)", fontsize=18)
+    else:
+        axs[0,1].set_xlabel("Time ({0.unit:s})".format(x[0]), fontsize=18)
+    axs[0,1].set_ylabel(r'Magnitude', fontsize=18)
+    axs[0,1].tick_params(labelsize=18)
+    axs[0,1].set_ylim(np.max(y.value) + .1, np.min(y.value) - .1)
+    axs[0,1].set_xlim(np.min(t), np.max(t))
+    axs[0,1].legend(fontsize=16, loc=1)
 
-        fig.tight_layout()
-        plt.show()
+    # Plot timescale posterior
+    if tau_term  == 1:
+        # log tau DRW
+        axs[1,0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$ (days)', fontsize=18)
+    else: # CARMA
+        # Plot first order timescale term
+        axs[1,0].set_xlabel(r'$\log_{10} 1/c_1$ (days)', fontsize=18)
+
+    tau = 1/np.exp(samples[:,tau_term])
+    log_tau = np.log10(tau)
+    tau_med = np.median(tau)
+    tau_err_lo = tau_med - np.percentile(tau, 16)
+    tau_err_hi = np.percentile(tau, 84) - tau_med
+    text = r"$\tau_{\rm{DRW}}={%.1f}^{+%.1f}_{-%.1f}$" % (tau_med, tau_err_lo, tau_err_hi)
+    axs[1,0].text(0.5, 0.9, text, transform=axs[1,0].transAxes, ha='center', fontsize=16)
+
+    # tau_DRW posterior distribution
+    axs[1,0].hist(log_tau[np.isfinite(log_tau)], color=color, alpha=0.8, fill=None, histtype='step', lw=3, bins=50, label=r'posterior distribution')
+    ylim = axs[1,0].get_ylim()
+    axs[1,0].vlines(np.percentile(log_tau, 16), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
+    axs[1,0].vlines(np.percentile(log_tau, 84), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
+    axs[1,0].axvspan(np.log10(0.2*baseline.value), np.max(log_tau), alpha=0.2, color='k')
+    axs[1,0].axvspan(np.min(log_tau), np.log10(cadence.value), alpha=0.2, color='k')
+    axs[1,0].set_ylim(ylim)
+    axs[1,0].set_xlim(np.min(log_tau[np.isfinite(log_tau)]), np.max(log_tau[np.isfinite(log_tau)]))
+    axs[1,0].set_ylabel('Count', fontsize=18)
+    axs[1,0].tick_params(labelsize=18)
+
+    # ACF of sq. res.
+    s = np.median(samples,axis=0)
+    gp.set_parameter_vector(s)
+    mu, var = gp.predict(y.value, x.value, return_var=False)
+    res2 = (y.value-mu)**2
+
+    # Plot ACF
+    lags, c, l, b = axs[1,1].acorr(res2-np.mean(res2), maxlags=None, lw=2, color='k')
+    maxlag = (len(lags)-2)/2
+    # White noise
+    wnoise_upper = 1.96/np.sqrt(len(x))
+    wnoise_lower = -1.96/np.sqrt(len(x))
+    axs[1,1].fill_between([0, maxlag], wnoise_upper, wnoise_lower, facecolor='lightgrey')
+    axs[1,1].set_ylabel(r'ACF $\chi^2$', fontsize=18)
+    axs[1,1].set_xlabel(r'Time Lag (days)', fontsize=18)
+    axs[1,1].set_xlim(0, maxlag)
+    axs[1,1].tick_params('both', labelsize=16)
+
+    fig.tight_layout()
+    plt.show()
     
-    # Return the GP model and sample chains
-    return gp, samples
+    # Return the figure
+    return fig
