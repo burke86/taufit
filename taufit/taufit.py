@@ -23,6 +23,9 @@ def simulate_drw(x, tau=50, sigma=0.2, ymean=0, size=1, seed=None):
 
         SFinf = sigma * sqrt(tau / 2)
         
+    Note: If tau is too small relative to the sampling x, this may return nans.
+    Use a finer sampling and interpolate in this case.
+        
     returns: y simulated light curve samples of shape [size, len(x)]
     """
     
@@ -36,7 +39,7 @@ def simulate_drw(x, tau=50, sigma=0.2, ymean=0, size=1, seed=None):
     gp = celerite.GP(kernel, mean=ymean)
     gp.compute(x)
     
-    y = gp.sample(size=1)
+    y = gp.sample(size=size)
     
     return y
     
@@ -125,9 +128,9 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
         cmin = np.log(1/(10*baseline.value))
         cmax = np.log(1/min_cadence)
         log_c = np.mean([cmin,cmax])
-        
-        smin = 0.1*amin
-        smax = amax
+                
+        smin = -10
+        smax = np.log(amplitude)
         log_s = np.mean([smin,smax])
     # No bounds
     elif bounds == 'none':
@@ -462,19 +465,21 @@ def plot_celerite(x, y, yerr, kernel, gp, samples, tau_term=1, target_name=None,
     axs[0,1].legend(fontsize=16, loc=1)
 
     # Plot timescale posterior
-    if tau_term  == 1:
-        # log tau DRW
-        axs[1,0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$ (days)', fontsize=18)
-    else: # CARMA
-        # Plot first order timescale term
-        axs[1,0].set_xlabel(r'$\log_{10} 1/c_1$ (days)', fontsize=18)
 
     tau = 1/np.exp(samples[:,tau_term])
     log_tau = np.log10(tau)
     tau_med = np.median(tau)
     tau_err_lo = tau_med - np.percentile(tau, 16)
     tau_err_hi = np.percentile(tau, 84) - tau_med
-    text = r"$\tau_{\rm{DRW}}={%.1f}^{+%.1f}_{-%.1f}$" % (tau_med, tau_err_lo, tau_err_hi)
+    
+    if tau_term  == 1:
+        # log tau DRW
+        axs[1,0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$ (days)', fontsize=18)
+        text = r"$\tau_{\rm{DRW}}={%.1f}^{+%.1f}_{-%.1f}$" % (tau_med, tau_err_lo, tau_err_hi)
+    else: # CARMA
+        # Plot first order timescale term
+        axs[1,0].set_xlabel(r'$\log_{10} 1/c_1$ (days)', fontsize=18)
+        text = r"$\log_{10} 1/c_1$ (days)={%.1f}^{+%.1f}_{-%.1f}$" % (tau_med, tau_err_lo, tau_err_hi)
     axs[1,0].text(0.5, 0.9, text, transform=axs[1,0].transAxes, ha='center', fontsize=16)
 
     # tau_DRW posterior distribution
@@ -493,10 +498,10 @@ def plot_celerite(x, y, yerr, kernel, gp, samples, tau_term=1, target_name=None,
     s = np.median(samples,axis=0)
     gp.set_parameter_vector(s)
     mu, var = gp.predict(y.value, x.value, return_var=False)
-    res2 = (y.value-mu)**2
+    res2 = (y.value - mu)**2
 
     # Plot ACF
-    lags, c, l, b = axs[1,1].acorr(res2-np.mean(res2), maxlags=None, lw=2, color='k')
+    lags, c, l, b = axs[1,1].acorr(res2 - np.mean(res2), maxlags=None, lw=2, color='k')
     maxlag = (len(lags)-2)/2
     # White noise
     wnoise_upper = 1.96/np.sqrt(len(x))
