@@ -433,7 +433,8 @@ def plot_celerite(x, y, yerr, gp, samples, tau_term=1, target_name=None, color="
     mu, var = gp.predict(y.value, t, return_var=True)
     std = np.sqrt(var)
     # Noise level
-    noise_level = 2.0*np.median(np.diff(x.value))*np.mean(yerr.value**2)
+    #noise_level = 2.0*np.median(np.diff(x.value))*np.mean(yerr.value**2)
+    # Should include jitter noise
     
     # Lomb-Scargle periodogram with PSD normalization
     freqLS, powerLS = LombScargle(x, y, yerr).autopower(normalization='psd')
@@ -471,6 +472,7 @@ def plot_celerite(x, y, yerr, gp, samples, tau_term=1, target_name=None, color="
     psd_credint[:, 2] = np.percentile(psd_samples, 84, axis=1)
     psd_credint[:, 1] = np.median(psd_samples, axis=1)
     
+    # Do the normalization empirically
     f_norm = np.max(powerLS.value)/psd_credint[0, 1]
     
     psd_credint[:, 0] = psd_credint[:, 0]*f_norm
@@ -480,13 +482,12 @@ def plot_celerite(x, y, yerr, gp, samples, tau_term=1, target_name=None, color="
     # Plot
     fig, axs = plt.subplots(2,2, figsize=(15,10), gridspec_kw={'width_ratios': [1, 1.5]})
     # PSD
-    axs[0,0].set_xlim(np.min(freqLS.value), np.max(freqLS.value))
     axs[0,0].loglog(freqLS, powerLS, c='grey', lw=2, alpha=0.3, label=r'Lomb$-$Scargle', drawstyle='steps-pre')
     #axs[0,0].fill_between(f_bin_center[1:], psd_binned[1:, 1], psd_binned[1:, 2], alpha=0.8, interpolate=True, label=r'binned Lomb$-$Scargle', color='k', step='mid')
     axs[0,0].fill_between(f, psd_credint[:, 2], psd_credint[:, 0], alpha=0.3, label='posterior PSD', color=color)
-    xlim = axs[0,0].get_xlim()
-    axs[0,0].hlines(noise_level, xlim[0], xlim[1], color='grey', lw=2)
-    axs[0,0].annotate("Measurement Noise Level", (1.25 * xlim[0], noise_level / 1.9), fontsize=14)
+    #xlim = axs[0,0].get_xlim()
+    #axs[0,0].hlines(noise_level, xlim[0], xlim[1], color='grey', lw=2)
+    #axs[0,0].annotate("Measurement Noise Level", (1.25 * xlim[0], noise_level / 1.9), fontsize=14)
     if y.unit == u.mag:
         axs[0,0].set_ylabel("Power (mag$^2 / $day$^{-1}$)", fontsize=18)
     else:
@@ -494,7 +495,8 @@ def plot_celerite(x, y, yerr, gp, samples, tau_term=1, target_name=None, color="
     axs[0,0].set_xlabel("Frequency (days$^{-1}$)", fontsize=18)
     axs[0,0].tick_params('both', labelsize=16)
     axs[0,0].legend(fontsize=16, loc=1)
-    axs[0,0].set_ylim(noise_level / 10.0, 10*axs[0,0].get_ylim()[1])
+    axs[0,0].set_xlim(np.min(freqLS.value), np.max(freqLS.value))
+    axs[0,0].set_ylim([np.min(psd_credint[:, 1]), 10*np.max(psd_credint[:, 1])])
 
     # Light curve & prediction
     axs[0,1].errorbar(x.value, y.value, yerr=yerr.value, c='k', fmt='.', alpha=0.75, elinewidth=1, label=target_name)
