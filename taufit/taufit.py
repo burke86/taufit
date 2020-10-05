@@ -53,7 +53,7 @@ def hampel_filter(x, y, window_size, n_sigmas=3):
     window_size: window size to use for Hampel filter
     n_sigmas: number of sigmas to reject outliers past
     
-    returns: x, y, mask [lists of cleaned data and masks with outliers]
+    returns: x, y, mask [lists of cleaned data and outlier mask]
         
     Adapted from Eryk Lewinson
     https://towardsdatascience.com/outlier-detection-with-hampel-filter-85ddf523c73d
@@ -507,7 +507,6 @@ def plot_celerite(x, y, yerr, gp, samples, tau_term=1, target_name=None, color="
     else:
         axs[0,1].set_ylabel('Normalized Flux', fontsize=18)
     axs[0,1].tick_params(labelsize=18)
-    axs[0,1].invert_yaxis()
     axs[0,1].set_xlim(np.min(t), np.max(t))
     axs[0,1].legend(fontsize=16, loc=1)
 
