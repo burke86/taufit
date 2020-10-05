@@ -53,20 +53,20 @@ def hampel_filter(x, y, window_size, n_sigmas=3):
     window_size: window size to use for Hampel filter
     n_sigmas: number of sigmas to reject outliers past
     
-    returns: x, y, indx lists of cleaned data and index
+    returns: x, y, mask [lists of cleaned data and masks with outliers]
         
     Adapted from Eryk Lewinson
     https://towardsdatascience.com/outlier-detection-with-hampel-filter-85ddf523c73d
     """
     
-    # Sort data
-    ind = np.argsort(x)
-    x = np.array(x)[ind]
-    y = np.array(y)[ind]
+    # Ensure data are sorted
+    if np.all(np.diff(x) > 0):
+        ValueError('Data are not sorted!')
+        
     x0 = x[0]
     
     n = len(x)
-    idx = []
+    outlier_mask = np.zeros(n)
     k = 1.4826 # MAD scale factor for Gaussian distribution
     
     # Loop over data points
@@ -80,19 +80,21 @@ def hampel_filter(x, y, window_size, n_sigmas=3):
         y0 = np.median(y[mask])
         S0 = k*np.median(np.abs(y[mask] - y0))
         # MAD rejection
-        if (np.abs(y[i] - y0) < n_sigmas*S0):
-            idx.append(i)
+        if (np.abs(y[i] - y0) > n_sigmas*S0):
+            outlier_mask[i] = 1
+            
+    outlier_mask = outlier_mask.astype(np.bool)
     
-    return np.array(x)[idx], np.array(y)[idx], idx
+    return np.array(x)[~outlier_mask], np.array(y)[~outlier_mask], outlier_mask
 
 
 def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
     """
     Fit DRW model using celerite
     
-    x: time [astropy unit quantity]
-    y: data [astropy unit quantity]
-    yerr: error on data [astropy unit quantity]
+    x: time
+    y: data
+    yerr: error on data
     init: 'minimize', 'differential_evolution', or array of user-specified (e.g. previous) initial conditions
     nburn: number of burn-in samples
     nsamp: number of production samples
@@ -113,8 +115,23 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     x = x[ind]; y = y[ind]; yerr = yerr[ind]
     baseline = x[-1]-x[0]
     
-    # Combine Lomb-Scargle periodigram first to validate inputs
-    freqLS, powerLS = LombScargle(x, y, yerr).autopower(normalization='psd')
+    # Check inputs
+    assert (len(x) == len(y) == len(yerr)), "Input arrays must be of equal length."
+    # Assign units
+    if isinstance(x, u.Quantity):
+        if not x.unit == u.day:
+            x = x.to(u.day)
+    else:
+        x = x*u.day
+        
+    if isinstance(y, u.Quantity):
+        assert (y.unit == yerr.unit), "y and yerr must have the same units."
+        assert y.unit == u.mag or y.unit == u.dimensionless_unscaled, "y and yerr must have mag or dimensionless_unscaled units, or no units (in which case 'normalized flux' units are assumed)."
+    else:
+        # Normalize the data
+        norm = np.median(y)
+        y = y/norm*u.dimensionless_unscaled
+        yerr = yerr/norm*u.dimensionless_unscaled
     
     # Use uniform prior with default 'smart' bounds:
     if bounds == 'default':
@@ -176,9 +193,9 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     Fit CARMA-equivilant model using celerite
     
     Note: x, y, and yerr must by astropy Quantities with units!
-    x: time [astropy unit quantity]
-    y: data [astropy unit quantity]
-    yerr: error on data [astropy unit quantity]
+    x: time
+    y: data
+    yerr: error on data
     p: AR order of CARMA model (q = p - 1)
     init: 'minimize', 'differential_evolution', or array of user-specified (e.g. previous) initial conditions
     nburn: number of burn-in samples
@@ -204,6 +221,24 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     # Sort data
     ind = np.argsort(x)
     x = x[ind]; y = y[ind]; yerr = yerr[ind]
+    
+    # Check inputs
+    assert (len(x) == len(y) == len(yerr)), "Input arrays must be of equal length."
+    # Assign units
+    if isinstance(x, u.Quantity):
+        if not x.unit == u.day:
+            x = x.to(u.day)
+    else:
+        x = x*u.day
+        
+    if isinstance(y, u.Quantity):
+        assert (y.unit == yerr.unit), "y and yerr must have the same units."
+        assert y.unit == u.mag or y.unit == u.dimensionless_unscaled, "y and yerr must have mag or dimensionless_unscaled units, or no units (in which case 'normalized flux' units are assumed)."
+    else:
+        # Normalize the data
+        norm = np.median(y)
+        y = y/norm*u.dimensionless_unscaled
+        yerr = yerr/norm*u.dimensionless_unscaled
     
     # Use uniform prior with default 'smart' bounds:
     if bounds == 'default':
@@ -359,14 +394,14 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
     gp.set_parameter_vector(s)
     
     if plot:
-        fig = plot_celerite(x, y, yerr, kernel, gp, samples, tau_term=tau_term, target_name=target_name, color=color)
+        fig = plot_celerite(x, y, yerr, gp, samples, tau_term=tau_term, target_name=target_name, color=color)
     else:
         fig = None
     
     return gp, samples, fig
 
 
-def plot_celerite(x, y, yerr, kernel, gp, samples, tau_term=1, target_name=None, color="#ff7f0e"):
+def plot_celerite(x, y, yerr, gp, samples, tau_term=1, target_name=None, color="#ff7f0e"):
     """
     Plot celerite model, PSD, light curve, and auto-correlation figure
     
@@ -385,10 +420,12 @@ def plot_celerite(x, y, yerr, kernel, gp, samples, tau_term=1, target_name=None,
     """
     
     baseline = x[-1]-x[0]
-    cadence = np.median(np.diff(x))
-        
+    cadence = np.mean(np.diff(x))
+    
     s = np.median(samples, axis=0)
     gp.set_parameter_vector(s)
+    
+    kernel = gp.kernel
     
     pad = 0.05*baseline.value # 5% padding for plot
     t = np.linspace(np.min(x.value) - pad, np.max(x.value) + pad, 500)
@@ -402,6 +439,7 @@ def plot_celerite(x, y, yerr, kernel, gp, samples, tau_term=1, target_name=None,
     freqLS, powerLS = LombScargle(x, y, yerr).autopower(normalization='psd')
     powerLS /= len(x)
     f = np.logspace(np.log10(np.min(freqLS.value)), np.log10(np.max(freqLS.value)), 1000)/u.day
+    """
     # Binned Lomb-Scargle periodogram
     num_bins = 12
     f_bin = np.logspace(np.log10(np.min(freqLS.value)), np.log10(np.max(freqLS.value)), num_bins+1)
@@ -421,6 +459,7 @@ def plot_celerite(x, y, yerr, kernel, gp, samples, tau_term=1, target_name=None,
         psd_binned[i, 0] = meani
         psd_binned[i, 1] = meani + stdi # hi
         psd_binned[i, 2] = meani - stdi # lo
+    """
     # The posterior PSD
     psd_samples = np.empty((len(f), len(samples)))
     for i, s in enumerate(samples):
@@ -432,19 +471,26 @@ def plot_celerite(x, y, yerr, kernel, gp, samples, tau_term=1, target_name=None,
     psd_credint[:, 2] = np.percentile(psd_samples, 84, axis=1)
     psd_credint[:, 1] = np.median(psd_samples, axis=1)
     
+    f_norm = np.max(powerLS.value)/psd_credint[0, 1]
+    
+    psd_credint[:, 0] = psd_credint[:, 0]*f_norm
+    psd_credint[:, 2] = psd_credint[:, 2]*f_norm
+    psd_credint[:, 1] = psd_credint[:, 1]*f_norm
+    
     # Plot
     fig, axs = plt.subplots(2,2, figsize=(15,10), gridspec_kw={'width_ratios': [1, 1.5]})
     # PSD
     axs[0,0].set_xlim(np.min(freqLS.value), np.max(freqLS.value))
     axs[0,0].loglog(freqLS, powerLS, c='grey', lw=2, alpha=0.3, label=r'Lomb$-$Scargle', drawstyle='steps-pre')
-    axs[0,0].fill_between(f_bin_center[1:], psd_binned[1:, 1], psd_binned[1:, 2], alpha=0.8, interpolate=True, label=r'binned Lomb$-$Scargle', color='k', step='mid')
+    #axs[0,0].fill_between(f_bin_center[1:], psd_binned[1:, 1], psd_binned[1:, 2], alpha=0.8, interpolate=True, label=r'binned Lomb$-$Scargle', color='k', step='mid')
     axs[0,0].fill_between(f, psd_credint[:, 2], psd_credint[:, 0], alpha=0.3, label='posterior PSD', color=color)
     xlim = axs[0,0].get_xlim()
     axs[0,0].hlines(noise_level, xlim[0], xlim[1], color='grey', lw=2)
     axs[0,0].annotate("Measurement Noise Level", (1.25 * xlim[0], noise_level / 1.9), fontsize=14)
-    axs[0,0].set_ylabel("Power (mag$^2 / $day$^{-1}$)",fontsize=18)
-    #axs[0,0].set_ylabel("Power (${0.unit:s}^2 / {0.unit:s}^{-1}$)".format(x[0], y[0]), fontsize=18)
-    #axs[0,0].set_xlabel("Frequency ({0.unit:s}$^{-1}$)".format(x[0]),fontsize=18)
+    if y.unit == u.mag:
+        axs[0,0].set_ylabel("Power (mag$^2 / $day$^{-1}$)", fontsize=18)
+    else:
+        axs[0,0].set_ylabel("Power (ppm$^2 / $day$^{-1}$)", fontsize=18)
     axs[0,0].set_xlabel("Frequency (days$^{-1}$)", fontsize=18)
     axs[0,0].tick_params('both', labelsize=16)
     axs[0,0].legend(fontsize=16, loc=1)
@@ -454,18 +500,18 @@ def plot_celerite(x, y, yerr, kernel, gp, samples, tau_term=1, target_name=None,
     axs[0,1].errorbar(x.value, y.value, yerr=yerr.value, c='k', fmt='.', alpha=0.75, elinewidth=1, label=target_name)
     axs[0,1].fill_between(t, mu+std, mu-std, color=color, alpha=0.3, label='posterior prediction')
 
-    if True:
-        axs[0,1].set_xlabel("Time (MJD)", fontsize=18)
+    axs[0,1].set_xlabel("Time (days)", fontsize=18)
+    if y.unit == u.mag:
+        axs[0,1].set_ylabel('Magnitude', fontsize=18)
+        axs[0,1].invert_yaxis()
     else:
-        axs[0,1].set_xlabel("Time ({0.unit:s})".format(x[0]), fontsize=18)
-    axs[0,1].set_ylabel(r'Magnitude', fontsize=18)
+        axs[0,1].set_ylabel('Normalized Flux', fontsize=18)
     axs[0,1].tick_params(labelsize=18)
-    axs[0,1].set_ylim(np.max(y.value) + .1, np.min(y.value) - .1)
+    axs[0,1].invert_yaxis()
     axs[0,1].set_xlim(np.min(t), np.max(t))
     axs[0,1].legend(fontsize=16, loc=1)
 
     # Plot timescale posterior
-
     tau = 1/np.exp(samples[:,tau_term])
     log_tau = np.log10(tau)
     tau_med = np.median(tau)
