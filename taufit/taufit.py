@@ -137,7 +137,7 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     if bounds == 'default':
         min_precision = np.min(yerr.value)
         amplitude = np.max(y.value+yerr.value)-np.min(y.value-yerr.value)
-        amin = np.log(0.01*min_precision)
+        amin = np.log(0.001*min_precision)
         amax = np.log(10*amplitude)
         log_a = np.mean([amin,amax])
         
@@ -522,11 +522,11 @@ def plot_celerite(x, y, yerr, gp, samples, tau_term=1, target_name=None, color="
     if tau_term  == 1:
         # log tau DRW
         axs[1,0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$ (days)', fontsize=18)
-        text = r"$\tau_{\rm{DRW}}={%.1f}^{+%.1f}_{-%.1f}$" % (tau_med, tau_err_lo, tau_err_hi)
+        text = r"$\tau_{\rm{DRW}}={%.1f}^{+%.1f}_{-%.1f}$" % (tau_med, tau_err_hi, tau_err_lo)
     else: # CARMA
         # Plot first order timescale term
         axs[1,0].set_xlabel(r'$\log_{10} 1/c_1$ (days)', fontsize=18)
-        text = r"$\log_{10} 1/c_1$ (days)={%.1f}^{+%.1f}_{-%.1f}$" % (tau_med, tau_err_lo, tau_err_hi)
+        text = r"$\log_{10} 1/c_1$ (days)={%.1f}^{+%.1f}_{-%.1f}$" % (tau_med, tau_err_hi, tau_err_lo)
     axs[1,0].text(0.5, 0.9, text, transform=axs[1,0].transAxes, ha='center', fontsize=16)
 
     # tau_DRW posterior distribution
