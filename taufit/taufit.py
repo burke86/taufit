@@ -88,7 +88,7 @@ def hampel_filter(x, y, window_size, n_sigmas=3):
     return np.array(x)[~outlier_mask], np.array(y)[~outlier_mask], outlier_mask
 
 
-def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
+def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=True, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
     """
     Fit DRW model using celerite
     
@@ -141,7 +141,7 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
         amax = np.log(10*amplitude)
         log_a = np.mean([amin,amax])
         
-        min_cadence = np.clip(np.min(np.diff(x.value)), 0.1, None)
+        min_cadence = np.clip(np.min(np.diff(x.value)), 1e-8, None)
         cmin = np.log(1/(10*baseline.value))
         cmax = np.log(1/min_cadence)
         log_c = np.mean([cmin,cmax])
@@ -188,7 +188,7 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     return gp, samples, fig
 
 
-def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=False, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
+def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=True, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
     """
     Fit CARMA-equivilant model using celerite
     
