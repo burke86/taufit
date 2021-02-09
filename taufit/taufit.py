@@ -3,8 +3,10 @@ import warnings
 import celerite
 from celerite import terms
 import emcee
+import corner
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 from astropy import units as u
 from astropy.timeseries import LombScargle
 from scipy.optimize import minimize, differential_evolution
@@ -88,7 +90,70 @@ def hampel_filter(x, y, window_size, n_sigmas=3):
     return np.array(x)[~outlier_mask], np.array(y)[~outlier_mask], outlier_mask
 
 
-def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=True, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
+def smoothly_broken_power_law(f, A=1, f_br=1e-3, alpha=0, beta=2):
+    return A/((f/f_br)**alpha + (f/f_br)**beta)
+
+
+def simulate_from_psd(S_func, m=2000, dt=1, ymean=0, sigma=0.2, size=1, seed=None, **args):
+    """
+    Simulate light curve given input times, model PSD, and ymean
+    
+    S_func: model PSD function S(omega) [note omega = 2 pi f]
+    m: number of bins [output will have length 2(m - 1)]
+    dt: equal spacing in time
+    ymean: data mean
+    sigma: data standard deviation
+    size: number of samples
+    seed: seed for numpy's random number generator (use 'None' to re-seed)
+        
+    returns:
+    x:
+    y: simulated light curve samples of shape [size, 2(m - 1)]
+    omega: 
+    
+    Adapted from Timmer, J. & Koenig, M. On Generating Power Law Noise. A&A 300 707 (1995)
+    and https://github.com/pabell/pylcsim/blob/master/lcpsd.py
+    """
+    
+    np.random.seed(seed)
+    
+    n = 2*(m - 1)
+    
+    # Get FFT frequencies
+    f = np.fft.rfftfreq(n=n, d=dt)[1:]
+    omega = f*2*np.pi
+    
+    # Evaluate PSD function
+    S = S_func(omega, **args)
+    
+    # Model PSD factor
+    fac = np.sqrt(S/2.0)
+        
+    y = np.zeros([size, n-2])
+    
+    for i in range(size):
+    
+        # Generate the real and imaginary terms
+        re = np.random.normal(size=n//2)*fac
+        im = np.random.normal(size=n//2)*fac
+        
+        # Generate randomized PSD
+        S_rand = re + 1j*im
+
+        yi = np.fft.irfft(S_rand)
+        
+        # Renormalize the light curve
+        mean = np.mean(yi)
+        std = np.std(yi)
+        y[i,:] = (yi - mean)/std*sigma + ymean
+
+    # Times
+    x = dt*np.arange(0, n-2)
+    
+    return x, y, f, S
+
+
+def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default', target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
     """
     Fit DRW model using celerite
     
@@ -99,7 +164,6 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     nburn: number of burn-in samples
     nsamp: number of production samples
     bounds: 'dafault', 'none', or array of user-specified bounds
-    jitter: whether to add jitter (white noise term)
     target_name: name of target to display in light curve legend
     color: color for plotting
     plot: whether to plot the result
@@ -179,16 +243,15 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
                             bounds=dict(log_a=(amin, amax), log_c=(cmin, cmax)))
     
     # Add jitter term
-    if jitter:
-        kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
+    kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
         
-    gp, samples, fig = fit_celerite(x, y, yerr, kernel, 1, init=init, nburn=nburn, nsamp=nsamp, target_name=target_name, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn, seed=seed)
+    gp, samples, fig = fit_celerite(x, y, yerr, kernel, init=init, nburn=nburn, nsamp=nsamp, target_name=target_name, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn, seed=seed)
     
     # Return the GP model and sample chains
     return gp, samples, fig
 
 
-def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='default', jitter=True, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
+def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='default', target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
     """
     Fit CARMA-equivilant model using celerite
     
@@ -201,7 +264,6 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     nburn: number of burn-in samples
     nsamp: number of production samples
     bounds: 'dafault' or array of user-specified bounds
-    jitter: whether to add jitter (white noise term)
     target_name: name of target to display in light curve legend
     color: color for plotting
     plot: whether to plot the result
@@ -290,16 +352,15 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
                                            log_c=(cmin, cmax), log_d=(dmin, dmax)))
     
     # Add jitter term
-    if jitter:
-        kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
+    kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
        
-    gp, samples, fig = fit_celerite(x, y, yerr, kernel, 2, init=init, nburn=nburn, nsamp=nsamp, target_name=None, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn, seed=seed)
+    gp, samples, fig = fit_celerite(x, y, yerr, kernel, init=init, nburn=nburn, nsamp=nsamp, target_name=None, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn, seed=seed)
         
     # Return the GP model and sample chains
     return gp, samples, fig
 
 
-def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsamp=2000, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
+def fit_celerite(x, y, yerr, kernel, init="minimize", nburn=500, nsamp=2000, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
     """
     Fit model to data using a given celerite kernel. Computes the PSD and generates useful plots.
     
@@ -308,7 +369,6 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
     y: data [astropy unit quantity]
     yerr: error on data [astropy unit quantity]
     kernel: celerite kernel
-    tau_term: index of samples to plot timescale (should be 1 for DRW)
     init: 'minimize', 'differential_evolution', or array of user-specified (e.g. previous) initial conditions
     nburn: number of burn-in samples
     nsamp: number of production samples
@@ -394,14 +454,14 @@ def fit_celerite(x, y, yerr, kernel, tau_term=1, init="minimize", nburn=500, nsa
     gp.set_parameter_vector(s)
     
     if plot:
-        fig = plot_celerite(x, y, yerr, gp, samples, tau_term=tau_term, target_name=target_name, color=color)
+        fig = plot_celerite(x, y, yerr, gp, samples, target_name=target_name, color=color)
     else:
         fig = None
     
     return gp, samples, fig
 
 
-def plot_celerite(x, y, yerr, gp, samples, tau_term=1, target_name=None, color="#ff7f0e"):
+def plot_celerite(x, y, yerr, gp, samples, target_name=None, color="#ff7f0e"):
     """
     Plot celerite model, PSD, light curve, and auto-correlation figure
     
@@ -412,7 +472,6 @@ def plot_celerite(x, y, yerr, gp, samples, tau_term=1, target_name=None, color="
     kernel: celerite kernel
     gp: celerite GuassianProccess object
     samples: celerite samples array
-    tau_term: index of samples to plot timescale (should be 1 for DRW)
     target_name: name of target to display in light curve legend
     color: color for plotting
     
@@ -432,135 +491,139 @@ def plot_celerite(x, y, yerr, gp, samples, tau_term=1, target_name=None, color="
     
     mu, var = gp.predict(y.value, t, return_var=True)
     std = np.sqrt(var)
-    # Noise level
-    #noise_level = 2.0*np.median(np.diff(x.value))*np.mean(yerr.value**2)
-    # Should include jitter noise
+    
+    fig_corner, axs = plt.subplots(3,3, figsize=(5,5))
+    
+    # Corner plot
+    samples_sf = [np.log10(np.sqrt(np.exp(samples[:,0]/2))), np.log10(1/np.exp(samples[:,1])), np.log10(np.exp(samples[:,2]))]
+    samples_sf = np.array(samples_sf).T
+    fig_corner = corner.corner(samples_sf, show_titles=True, fig=fig_corner, quantiles=[0.16,0.84],
+    labels = [r"$\log_{10}\ \sigma_{\rm{DRW}}$", r"$\log_{10}\ \tau_{\rm{DRW}}$", r"$\log_{10}\ \sigma_{\rm{n}}$"],
+    label_kwargs = dict(fontsize=18), title_kwargs=dict(fontsize=10));
+    # Ticks in
+    axs = np.array(fig_corner.axes).reshape((3, 3))
+    for i in range(3):
+        for j in range(3):
+            ax = axs[i,j]
+            ax.tick_params('both',labelsize=12)
+            ax.tick_params(axis='both', which='both', direction='in')
+            ax.tick_params(axis='both', which='major', length=6)
+            ax.tick_params(axis='both', which='minor', length=3)
+
+    # Draw bad tau region
+    axs[1,1].axvspan(np.log10(0.2*baseline.value), np.log10(10*baseline.value), color= "red", zorder=-5, alpha=0.2)
+    axs[2,1].axvspan(np.log10(0.2*baseline.value), np.log10(10*baseline.value), color= "red", zorder=-5, alpha=0.2)
+    
+    # Add gridspec to corner plot and re-arrange later (pretty hacky, but it works)
+    gs = gridspec.GridSpec(ncols=4, nrows=4, figure=fig_corner)
+
+    # Light curve plot
+    ax_lc = fig_corner.add_subplot(gs[0, :])
+    box = ax_lc.get_position()
+    box.x0 = box.x0 + 0.2
+    box.x1 = box.x1 + 1.0
+    box.y0 = box.y0 + 0.4
+    box.y1 = box.y1 + 0.9
+    ax_lc.set_position(box)
+    
+    # Light curve & prediction
+    ax_lc.errorbar(x.value, y.value, yerr=yerr.value, c='k', fmt='.', alpha=0.75, elinewidth=1, label=target_name)
+    ax_lc.fill_between(t, mu+std, mu-std, color="#ff7f0e", alpha=0.3, label='DRW prediction')
+    ax_lc.set_xlim(np.min(t), np.max(t))
+    ax_lc.set_xlabel("Time (days)", fontsize=20)
+    if y.unit == u.mag:
+        ax_lc.set_ylabel("Magnitude", fontsize=20)
+    else:
+        ax_lc.set_ylabel("Normalized Flux", fontsize=20)
+
+    ax_lc.minorticks_on()
+    ax_lc.tick_params('both',labelsize=18)
+    ax_lc.tick_params(axis='both', which='both', direction='in')
+    ax_lc.tick_params(axis='both', which='major', length=6)
+    ax_lc.tick_params(axis='both', which='minor', length=3)
+    ax_lc.xaxis.set_ticks_position('both')
+    ax_lc.yaxis.set_ticks_position('both')
+    
+    ax_lc.legend(fontsize=16, loc=1)
+    
+    # PSD Plot
+    ax_psd = fig_corner.add_subplot(gs[:, -1])
+    fig_corner.set_size_inches([6,6])
+    # Move the subplot over
+    box = ax_psd.get_position()
+    box.x0 = box.x0 + 0.4
+    box.x1 = box.x1 + 1.2
+    ax_psd.set_position(box)
     
     # Lomb-Scargle periodogram with PSD normalization
     freqLS, powerLS = LombScargle(x, y, yerr).autopower(normalization='psd')
-    powerLS /= len(x)
-    f = np.logspace(np.log10(np.min(freqLS.value)), np.log10(np.max(freqLS.value)), 1000)/u.day
-    """
-    # Binned Lomb-Scargle periodogram
-    num_bins = 12
-    f_bin = np.logspace(np.log10(np.min(freqLS.value)), np.log10(np.max(freqLS.value)), num_bins+1)
-    psd_binned = np.empty((num_bins, 3))
-    f_bin_center = np.empty(num_bins)
-    for i in range(num_bins):
-        if i == 1:
-            idx = (freqLS.value < f_bin[i+1])
-        else:
-            idx = (freqLS.value >= f_bin[i]) & (freqLS.value < f_bin[i+1])
-        len_idx = len(freqLS.value[idx])
-        if len_idx < 2:
-            continue
-        f_bin_center[i] = np.mean(freqLS.value[idx]) # freq center
-        meani = np.mean(powerLS.value[idx])
-        stdi = meani/np.sqrt(len_idx)
-        psd_binned[i, 0] = meani
-        psd_binned[i, 1] = meani + stdi # hi
-        psd_binned[i, 2] = meani - stdi # lo
-    """
-    # The posterior PSD
-    psd_samples = np.empty((len(f), len(samples)))
+    #powerLS /= len(x) # Celerite units
+    fs = (1./(np.min(np.diff(x)[np.diff(x)>0])))
+    powerLS *= 2/(len(x)*fs) # lightkurve units [flux variance / frequency unit]
+    ax_psd.loglog(freqLS.value, powerLS.value, c='grey', lw=1, alpha=0.3, label=r'PSD', drawstyle='steps-pre')
+    
+    # Celerite posterior PSD
+    f_eval = np.logspace(np.log10(freqLS.value[0]), np.log10(freqLS.value[-1]), 150)
+    psd_samples = np.empty((len(f_eval), len(samples)))
     for i, s in enumerate(samples):
         gp.set_parameter_vector(s)
-        psd_samples[:, i] = kernel.get_psd(2*np.pi*f.value)/2*np.pi
+        psd_samples[:, i] = kernel.get_psd(2*np.pi*f_eval)/(2*np.pi)
     # Compute credibility interval
-    psd_credint = np.empty((len(f), 3))
+    psd_credint = np.empty((len(f_eval), 3))
     psd_credint[:, 0] = np.percentile(psd_samples, 16, axis=1)
     psd_credint[:, 2] = np.percentile(psd_samples, 84, axis=1)
     psd_credint[:, 1] = np.median(psd_samples, axis=1)
     
     # Do the normalization empirically
-    f_norm = np.max(powerLS.value)/psd_credint[0, 1]
-    
+    f_norm = np.max(powerLS.value[freqLS.value>1/(2*np.pi*0.2*baseline.value)])/psd_credint[0, 1]
     psd_credint[:, 0] = psd_credint[:, 0]*f_norm
     psd_credint[:, 2] = psd_credint[:, 2]*f_norm
     psd_credint[:, 1] = psd_credint[:, 1]*f_norm
     
-    # Plot
-    fig, axs = plt.subplots(2,2, figsize=(15,10), gridspec_kw={'width_ratios': [1, 1.5]})
-    # PSD
-    axs[0,0].loglog(freqLS, powerLS, c='grey', lw=2, alpha=0.3, label=r'Lomb$-$Scargle', drawstyle='steps-pre')
-    #axs[0,0].fill_between(f_bin_center[1:], psd_binned[1:, 1], psd_binned[1:, 2], alpha=0.8, interpolate=True, label=r'binned Lomb$-$Scargle', color='k', step='mid')
-    axs[0,0].fill_between(f, psd_credint[:, 2], psd_credint[:, 0], alpha=0.3, label='posterior PSD', color=color)
-    #xlim = axs[0,0].get_xlim()
-    #axs[0,0].hlines(noise_level, xlim[0], xlim[1], color='grey', lw=2)
-    #axs[0,0].annotate("Measurement Noise Level", (1.25 * xlim[0], noise_level / 1.9), fontsize=14)
-    if y.unit == u.mag:
-        axs[0,0].set_ylabel("Power (mag$^2 / $day$^{-1}$)", fontsize=18)
-    else:
-        axs[0,0].set_ylabel("Power (ppm$^2 / $day$^{-1}$)", fontsize=18)
-    axs[0,0].set_xlabel("Frequency (days$^{-1}$)", fontsize=18)
-    axs[0,0].tick_params('both', labelsize=16)
-    axs[0,0].legend(fontsize=16, loc=1)
-    axs[0,0].set_xlim(np.min(freqLS.value), np.max(freqLS.value))
-    axs[0,0].set_ylim([np.min(psd_credint[:, 1]), 10*np.max(psd_credint[:, 1])])
-
-    # Light curve & prediction
-    axs[0,1].errorbar(x.value, y.value, yerr=yerr.value, c='k', fmt='.', alpha=0.75, elinewidth=1, label=target_name)
-    axs[0,1].fill_between(t, mu+std, mu-std, color=color, alpha=0.3, label='posterior prediction')
-
-    axs[0,1].set_xlabel("Time (days)", fontsize=18)
-    if y.unit == u.mag:
-        axs[0,1].set_ylabel('Magnitude', fontsize=18)
-        axs[0,1].invert_yaxis()
-    else:
-        axs[0,1].set_ylabel('Normalized Flux', fontsize=18)
-    axs[0,1].tick_params(labelsize=18)
-    axs[0,1].set_xlim(np.min(t), np.max(t))
-    axs[0,1].legend(fontsize=16, loc=1)
-
-    # Plot timescale posterior
-    tau = 1/np.exp(samples[:,tau_term])
-    log_tau = np.log10(tau)
-    tau_med = np.median(tau)
-    tau_err_lo = tau_med - np.percentile(tau, 16)
-    tau_err_hi = np.percentile(tau, 84) - tau_med
+    ax_psd.fill_between(f_eval, psd_credint[:, 2], psd_credint[:, 0], alpha=0.3, label='Model PSD', color=color)
     
-    if tau_term  == 1:
-        # log tau DRW
-        axs[1,0].set_xlabel(r'$\log_{10} \tau_{\rm{DRW}}$ (days)', fontsize=18)
-        text = r"$\tau_{\rm{DRW}}={%.1f}^{+%.1f}_{-%.1f}$" % (tau_med, tau_err_hi, tau_err_lo)
-    else: # CARMA
-        # Plot first order timescale term
-        axs[1,0].set_xlabel(r'$\log_{10} 1/c_1$ (days)', fontsize=18)
-        text = r"$\log_{10} 1/c_1$ (days)={%.1f}^{+%.1f}_{-%.1f}$" % (tau_med, tau_err_hi, tau_err_lo)
-    axs[1,0].text(0.5, 0.9, text, transform=axs[1,0].transAxes, ha='center', fontsize=16)
+    # Danger zone
+    ax_psd.axvspan(np.min(freqLS.value), 1/(2*np.pi*0.2*baseline.value), color='red', zorder=-1, alpha=0.2)
+    fmax = (1./(2*np.pi*np.mean(np.diff(x)[np.diff(x)>0])))
+    ax_psd.axvspan(fmax.value, np.max(freqLS.value), color='red', zorder=-1, alpha=0.2)
+    
+    ax_psd.set_xlim([np.min(freqLS.value), np.max(freqLS.value)])
+    ax_psd.set_ylim([0.5*np.nanmin(psd_credint[:, 0]), 10*np.nanmax(psd_credint[:, 2])])
+    
+    ax_psd.minorticks_on()
+    ax_psd.tick_params('both',labelsize=18)
+    ax_psd.tick_params(axis='both', which='both', direction='in')
+    ax_psd.tick_params(axis='both', which='major', length=6)
+    ax_psd.tick_params(axis='both', which='minor', length=3)
+    ax_psd.xaxis.set_ticks_position('both')
+    ax_psd.yaxis.set_ticks_position('both')
+    
+    ax_psd.legend(fontsize=16, loc=1)
+    
+    ax_psd.set_xlabel(r'Frequency (days$^{-1}$)', fontsize=20)
+    ax_psd.set_ylabel(r'Power [(rms)$^2$ days]', fontsize=20)
 
-    # tau_DRW posterior distribution
-    axs[1,0].hist(log_tau[np.isfinite(log_tau)], color=color, alpha=0.8, fill=None, histtype='step', lw=3, bins=50, label=r'posterior distribution')
-    ylim = axs[1,0].get_ylim()
-    axs[1,0].vlines(np.percentile(log_tau, 16), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
-    axs[1,0].vlines(np.percentile(log_tau, 84), ylim[0], ylim[1], color='grey', lw=2, linestyle='dashed')
-    axs[1,0].axvspan(np.log10(0.2*baseline.value), np.max(log_tau), alpha=0.2, color='k')
-    axs[1,0].axvspan(np.min(log_tau), np.log10(cadence.value), alpha=0.2, color='k')
-    axs[1,0].set_ylim(ylim)
-    axs[1,0].set_xlim(np.min(log_tau[np.isfinite(log_tau)]), np.max(log_tau[np.isfinite(log_tau)]))
-    axs[1,0].set_ylabel('Count', fontsize=18)
-    axs[1,0].tick_params(labelsize=18)
+    fig_timing = plt.gcf()
+    
+    # Return the figure (use bbox_inches='tight' when saving)
+    return fig_timing
 
-    # ACF of sq. res.
-    s = np.median(samples,axis=0)
-    gp.set_parameter_vector(s)
-    mu, var = gp.predict(y.value, x.value, return_var=False)
-    res2 = (y.value - mu)**2
 
-    # Plot ACF
+def plot_acf_res(x, y, yerr, gp, samples, tau_term=1):
+    
+    fig, ax = plt.subplots(1,1, figsize=(12,5))
+    
+    # Plot auto-correlation function (ACF) of chi^2 residuals
     lags, c, l, b = axs[1,1].acorr(res2 - np.mean(res2), maxlags=None, lw=2, color='k')
     maxlag = (len(lags)-2)/2
     # White noise
     wnoise_upper = 1.96/np.sqrt(len(x))
     wnoise_lower = -1.96/np.sqrt(len(x))
-    axs[1,1].fill_between([0, maxlag], wnoise_upper, wnoise_lower, facecolor='lightgrey')
-    axs[1,1].set_ylabel(r'ACF $\chi^2$', fontsize=18)
-    axs[1,1].set_xlabel(r'Time Lag (days)', fontsize=18)
-    axs[1,1].set_xlim(0, maxlag)
-    axs[1,1].tick_params('both', labelsize=16)
+    ax.fill_between([0, maxlag], wnoise_upper, wnoise_lower, facecolor='lightgrey')
+    ax.set_ylabel(r'ACF $\chi^2$', fontsize=18)
+    ax.set_xlabel(r'Time Lag (days)', fontsize=18)
+    ax.set_xlim(0, maxlag)
+    ax.tick_params('both', labelsize=16)
 
     fig.tight_layout()
-    plt.show()
-    
-    # Return the figure
     return fig
