@@ -530,6 +530,7 @@ def plot_celerite(x, y, yerr, gp, samples, target_name=None, color="#ff7f0e"):
     ax_lc.errorbar(x.value, y.value, yerr=yerr.value, c='k', fmt='.', alpha=0.75, elinewidth=1, label=target_name)
     ax_lc.fill_between(t, mu+std, mu-std, color="#ff7f0e", alpha=0.3, label='DRW prediction')
     ax_lc.set_xlim(np.min(t), np.max(t))
+    ax_lc.invert_yaxis()
     ax_lc.set_xlabel("Time (days)", fontsize=20)
     if y.unit == u.mag:
         ax_lc.set_ylabel("Magnitude", fontsize=20)
