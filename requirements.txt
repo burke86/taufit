@@ -5,3 +5,4 @@ emcee
 corner
 astropy
 scipy
+autograd
