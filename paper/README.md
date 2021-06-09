@@ -1,4 +1,4 @@
-Code for publication "A fundamental variability timescale inastrophysical accretion disks" Burke et al. 2021 Science.
+Code for publication "A characteristic optical variability timescale in astrophysical accretion disks" Burke et al. 2021 Science.
 
 Filenames and description:
 
