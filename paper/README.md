@@ -8,4 +8,6 @@ loaddat.py: Helper codes to load data from published light curve sources
 
 df_mle_revision.pkl: Intermediate data file with initial MCMC fitting solution and light curves
 
+df_csv_all_revision.pkl: Intermediate data file with full MCMC fitting solution and light curves
+
 ../taufit: Parent repository containing celerite-based codes for timing analysis (see install instructions in that README file)
