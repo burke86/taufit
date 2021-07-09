@@ -469,7 +469,6 @@ def plot_celerite(x, y, yerr, gp, samples, target_name=None, color="#ff7f0e"):
     x: time [astropy unit quantity]
     y: data [astropy unit quantity]
     yerr: error on data [astropy unit quantity]
-    kernel: celerite kernel
     gp: celerite GuassianProccess object
     samples: celerite samples array
     target_name: name of target to display in light curve legend
