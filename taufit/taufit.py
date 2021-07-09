@@ -610,11 +610,38 @@ def plot_celerite(x, y, yerr, gp, samples, target_name=None, color="#ff7f0e"):
     return fig_timing
 
 
-def plot_acf_res(x, y, yerr, gp, samples, tau_term=1):
+def plot_acf_res(x, y, gp, samples, plot=True):
+    """
+    Compute/plot ACF of Chi^2 residuals to test model
     
-    fig, ax = plt.subplots(1,1, figsize=(12,5))
+    Note: x, y, and yerr must by astropy Quantities with units!
+    x: time [astropy unit quantity]
+    y: data [astropy unit quantity]
+    gp: celerite GuassianProccess object
+    samples: celerite samples array
+    plot: whether or not to plot ACF(Chi^2) [bool]
     
+    returns: Ljung-Box test p-value at maxlag
+    """
+    
+    import statsmodels.api as sm
+    
+    s = np.median(samples, axis=0)
+    gp.set_parameter_vector(s)
+    
+    kernel = gp.kernel
+    
+    mu, var = gp.predict(y.value, x.value, return_var=False)
+    
+    res2 = (mu - y.value)**2
+        
     # Plot auto-correlation function (ACF) of chi^2 residuals
+    acf, ci, qstat, pvals = sm.tsa.stattools.acf(res2 - np.mean(res2), qstat=True, alpha=0.05)
+    
+    if plot:
+        sm.graphics.tsa.plot_acf(res2 - np.mean(res2))
+    
+    """
     lags, c, l, b = axs[1,1].acorr(res2 - np.mean(res2), maxlags=None, lw=2, color='k')
     maxlag = (len(lags)-2)/2
     # White noise
@@ -625,6 +652,26 @@ def plot_acf_res(x, y, yerr, gp, samples, tau_term=1):
     ax.set_xlabel(r'Time Lag (days)', fontsize=18)
     ax.set_xlim(0, maxlag)
     ax.tick_params('both', labelsize=16)
+    """
 
-    fig.tight_layout()
-    return fig
+    return pvals[-1]
+
+def p2sigma(p):
+    """
+    Helper function to convert p-value to sigma (Z-score)
+    
+    p: p-value
+    
+    returns: sigma
+    """
+    
+    import scipy.stats as st
+    
+    # https://stackoverflow.com/questions/20864847/probability-to-z-score-and-vice-versa
+    # Statisticians call sigma Z-score
+    log_p = np.log(p)
+    if (log_p > -36):
+        sigma = st.norm.ppf(1 - p/2)
+    else:
+        sigma = np.sqrt(np.log(2/np.pi) - 2*np.log(8.2) - 2*log_p)
+    return sigma
