@@ -153,7 +153,7 @@ def simulate_from_psd(S_func, m=2000, dt=1, ymean=0, sigma=0.2, size=1, seed=Non
     return x, y, f, S
 
 
-def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default', target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
+def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, lamb=None, bounds='default', target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
     """
     Fit DRW model using celerite
     
@@ -245,7 +245,7 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, bounds='default'
     # Add jitter term
     kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
         
-    gp, samples, fig = fit_celerite(x, y, yerr, kernel, init=init, nburn=nburn, nsamp=nsamp, target_name=target_name, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn, seed=seed)
+    gp, samples, fig = fit_celerite(x, y, yerr, kernel, init=init, nburn=nburn, nsamp=nsamp, lamb=lamb, target_name=target_name, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn, seed=seed)
     
     # Return the GP model and sample chains
     return gp, samples, fig
@@ -354,13 +354,13 @@ def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='d
     # Add jitter term
     kernel += terms.JitterTerm(log_sigma=log_s, bounds=dict(log_sigma=(smin, smax)))
        
-    gp, samples, fig = fit_celerite(x, y, yerr, kernel, init=init, nburn=nburn, nsamp=nsamp, target_name=None, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn, seed=seed)
+    gp, samples, fig = fit_celerite(x, y, yerr, kernel, init=init, nburn=nburn, nsamp=nsamp, lamb=lamb, target_name=None, color=color, plot=plot, verbose=verbose, supress_warn=supress_warn, seed=seed)
         
     # Return the GP model and sample chains
     return gp, samples, fig
 
 
-def fit_celerite(x, y, yerr, kernel, init="minimize", nburn=500, nsamp=2000, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
+def fit_celerite(x, y, yerr, kernel, init="minimize", nburn=500, nsamp=2000, lamb=None, target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
     """
     Fit model to data using a given celerite kernel. Computes the PSD and generates useful plots.
     
@@ -406,25 +406,77 @@ def fit_celerite(x, y, yerr, kernel, init="minimize", nburn=500, nsamp=2000, tar
     initial_params = gp.get_parameter_vector()
     bounds = gp.get_parameter_bounds()
     
-    # MLE solution
-    if init == "minimize":
-        soln = minimize(neg_log_like, initial_params, jac=grad_neg_log_like,
-                        method="L-BFGS-B", bounds=bounds, args=(y.value, gp))
-        initial = np.array(soln.x)
-        if verbose:
-            print("Final log-likelihood: {0}".format(-soln.fun))
-    elif init == "differential_evolution":
-        soln = differential_evolution(neg_log_like, bounds=bounds, args=(y.value, gp))
-        initial = np.array(soln.x)
-        if verbose:
-            print("Final log-likelihood: {0}".format(-soln.fun))
-    # Use user-provided initial MLE conditions
-    elif np.issubdtype(np.array(init).dtype, np.number):
-        initial = init
-    else:
-        raise ValueError('initial value not recognized!')
-        
+    def _mle(y, gp, initial_params, bounds):
+    
+        # MLE solution
+        if init == "minimize":
+            soln = minimize(neg_log_like, initial_params, jac=grad_neg_log_like,
+                            method="L-BFGS-B", bounds=bounds, args=(y.value, gp))
+            initial = np.array(soln.x)
+            if verbose:
+                print("Final log-likelihood: {0}".format(-soln.fun))
+        elif init == "differential_evolution":
+            soln = differential_evolution(neg_log_like, bounds=bounds, args=(y.value, gp))
+            initial = np.array(soln.x)
+            if verbose:
+                print("Final log-likelihood: {0}".format(-soln.fun))
+        # Use user-provided initial MLE conditions
+        elif np.issubdtype(np.array(init).dtype, np.number):
+            initial = init
+        else:
+            raise ValueError('initial value not recognized!')
+            
+        return initial
+    
+    # Find MLE
+    initial = _mle(y, gp, initial_params, bounds)   
     gp.set_parameter_vector(initial)
+    
+    # Filter long-term trends
+    if lamb is not None:
+        import statsmodels.api as sm
+        # Filter on evenly-sampled MLE solution
+        mean_cadence = np.mean(np.diff(x.value))
+        t = np.arange(np.min(x.value), np.max(x.value), mean_cadence/10)
+        mu = gp.predict(y.value, t, return_cov=False)
+        cycle, trend = sm.tsa.filters.hpfilter(mu, lamb)
+        
+        if plot:
+            # Light curve & prediction
+            fig, ax_lc = plt.subplots(1,1, figsize=(9,5))
+            ax_lc.errorbar(x.value, y.value, yerr=yerr.value, c='k', fmt='.', alpha=0.75, elinewidth=1, label=target_name)
+            ax_lc.plot(t, trend, c='r', label='trend')
+            ax_lc.invert_yaxis()
+            ax_lc.set_xlabel("Time (days)", fontsize=20)
+            if y.unit == u.mag:
+                ax_lc.set_ylabel("Magnitude", fontsize=20)
+            else:
+                ax_lc.set_ylabel("Normalized Flux", fontsize=20)
+
+            ax_lc.minorticks_on()
+            ax_lc.tick_params('both',labelsize=18)
+            ax_lc.tick_params(axis='both', which='both', direction='in')
+            ax_lc.tick_params(axis='both', which='major', length=6)
+            ax_lc.tick_params(axis='both', which='minor', length=3)
+            ax_lc.xaxis.set_ticks_position('both')
+            ax_lc.yaxis.set_ticks_position('both')
+
+            ax_lc.legend(fontsize=16, loc=1)
+            fig.tight_layout()
+
+        # Subtract trend at real data
+        y = y - np.interp(x.value, t, trend)*(y.unit) + np.median(y)
+        
+        # Find new MLE
+        gp = celerite.GP(kernel, mean=np.mean(y.value), fit_mean=False)
+        gp.compute(x.value, yerr.value)
+        # Fit for the maximum likelihood parameters
+        initial_params = gp.get_parameter_vector()
+        bounds = gp.get_parameter_bounds()
+    
+        initial = _mle(y, gp, initial_params, bounds)   
+        gp.set_parameter_vector(initial)
+        
     
     # Define the log probablity
     def log_probability(params):
