@@ -251,7 +251,7 @@ def fit_drw(x, y, yerr, init='minimize', nburn=500, nsamp=2000, lamb=None, bound
     return gp, samples, fig
 
 
-def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, bounds='default', target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
+def fit_carma(x, y, yerr, p=2, init='minimize', nburn=500, nsamp=2000, lamb=None, bounds='default', target_name=None, color="#ff7f0e", plot=True, verbose=True, supress_warn=False, seed=None):
     """
     Fit CARMA-equivilant model using celerite
     
