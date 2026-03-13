@@ -12,6 +12,37 @@ fit_drw(x*u.day, y*u.mag, yerr*u.mag)
 
 See [demo.ipynb](https://nbviewer.jupyter.org/github/burke86/taufit/blob/master/demo.ipynb) for usage.
 
+## ⚠️ Warning
+
+This repository is no longer actively maintained.  
+Please consider using **[EzTaoX](https://github.com/LSST-AGN-Variability/EzTaoX)** instead.
+
+
+### Citation:
+
+If you make use of this code, please cite
+
+```
+@ARTICLE{Burke2021,
+       author = {{Burke}, Colin J. and {Shen}, Yue and {Blaes}, Omer and {Gammie}, Charles F. and {Horne}, Keith and {Jiang}, Yan-Fei and {Liu}, Xin and {McHardy}, Ian M. and {Morgan}, Christopher W. and {Scaringi}, Simone and {Yang}, Qian},
+        title = "{A characteristic optical variability time scale in astrophysical accretion disks}",
+      journal = {Science},
+     keywords = {ASTRONOMY, Astrophysics - Astrophysics of Galaxies, Astrophysics - High Energy Astrophysical Phenomena},
+         year = 2021,
+        month = aug,
+       volume = {373},
+       number = {6556},
+        pages = {789-792},
+          doi = {10.1126/science.abg9933},
+archivePrefix = {arXiv},
+       eprint = {2108.05389},
+ primaryClass = {astro-ph.GA},
+       adsurl = {https://ui.adsabs.harvard.edu/abs/2021Sci...373..789B},
+      adsnote = {Provided by the SAO/NASA Astrophysics Data System}
+}
+```
+
+
 ### Setup:
 
 Clone this repository, then:
